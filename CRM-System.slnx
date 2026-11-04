@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CRM-System.API/CRM-System.API.csproj" />
+    <Project Path="src/CRM-System.Core/CRM-System.Core.csproj" />
+    <Project Path="src/CRM-System.Infrastructure/CRM-System.Infrastructure.csproj" />
+    <Project Path="src/CRM-System.Web/CRM-System.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CRM-System.Tests/CRM-System.Tests.csproj" />
+  </Folder>
+</Solution>
