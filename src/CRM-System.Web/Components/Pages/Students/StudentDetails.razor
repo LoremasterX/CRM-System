@@ -1,0 +1,141 @@
+@page "/students/{Id:int}"
+@inject CrmAuthStateProvider AuthStateProvider
+@inject IStudentService StudentService
+@inject NavigationManager Navigation
+
+<PageTitle>Student Details — Student CRM</PageTitle>
+
+@if (_isLoading)
+{
+    <div class="crm-card p-5 text-center text-muted">Loading student record...</div>
+}
+else if (_errorMessage is not null)
+{
+    <EmptyStateCard Icon="🚫" Title="Access Denied or Not Found" Description="@_errorMessage">
+        <a href="profile" class="btn btn-primary">My Profile</a>
+        @if (AuthStateProvider.GetAccessContext().IsAdmin)
+        {
+            <a href="students" class="btn btn-outline-secondary">Back to Directory</a>
+        }
+    </EmptyStateCard>
+}
+else if (_student is not null)
+{
+    var isAdmin = AuthStateProvider.GetAccessContext().IsAdmin;
+
+    <div class="crm-page-header">
+        <div>
+            <h1 class="crm-page-title">@_student.FullName</h1>
+            <p class="crm-page-subtitle">Student ID: <strong>@_student.StudentNumber</strong> • @_student.Faculty</p>
+        </div>
+        <div class="d-flex gap-2">
+            @if (isAdmin)
+            {
+                <a href="students" class="btn btn-outline-secondary">← Directory</a>
+                <a href="@($"students/{_student.Id}/edit")" class="btn btn-primary">✏️ Edit Student</a>
+            }
+            else
+            {
+                <a href="profile" class="btn btn-primary">Edit My Profile</a>
+            }
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-4">
+            <div class="crm-card p-4 h-100">
+                <div class="text-center pb-3 border-bottom">
+                    <div class="crm-avatar crm-avatar-lg mx-auto mb-3">@_student.Initials</div>
+                    <h4 class="fw-bold mb-1">@_student.FullName</h4>
+                    <div class="text-muted small mb-2">@_student.Email</div>
+                    <div class="d-flex justify-content-center gap-2">
+                        <span class="crm-badge crm-badge-primary font-monospace">@_student.StudentNumber</span>
+                        <StatusBadge Status="_student.Status" />
+                    </div>
+                </div>
+                <div class="pt-3 small">
+                    <div class="mb-2 d-flex justify-content-between">
+                        <span class="text-muted">Phone:</span>
+                        <span class="fw-semibold">@(_student.PhoneNumber ?? "Not specified")</span>
+                    </div>
+                    <div class="mb-2 d-flex justify-content-between">
+                        <span class="text-muted">Date of Birth:</span>
+                        <span class="fw-semibold">@(_student.DateOfBirth?.ToString("yyyy-MM-dd") ?? "Not specified")</span>
+                    </div>
+                    <div class="mb-2 d-flex justify-content-between">
+                        <span class="text-muted">Enrollment Date:</span>
+                        <span class="fw-semibold">@_student.EnrollmentDate.ToString("yyyy-MM-dd")</span>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <span class="text-muted">Portal Login Linked:</span>
+                        <span class="fw-semibold">@(_student.UserId.HasValue ? "Yes" : "No")</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-8">
+            <div class="crm-card p-4 h-100">
+                <h5 class="fw-bold mb-3">Academic Affiliation &amp; Profile</h5>
+                <div class="row g-3">
+                    <div class="col-sm-6">
+                        <div class="text-muted small">University</div>
+                        <div class="fw-semibold">@_student.University</div>
+                    </div>
+                    <div class="col-sm-6">
+                        <div class="text-muted small">Faculty / School</div>
+                        <div class="fw-semibold">@_student.Faculty</div>
+                    </div>
+                    <div class="col-sm-6">
+                        <div class="text-muted small">Department</div>
+                        <div class="fw-semibold">@_student.Department</div>
+                    </div>
+                    <div class="col-sm-6">
+                        <div class="text-muted small">Study Program</div>
+                        <div class="fw-semibold">@_student.StudyProgram</div>
+                    </div>
+                    <div class="col-sm-6">
+                        <div class="text-muted small">Current Study Year</div>
+                        <div class="fw-semibold">Year @_student.StudyYear</div>
+                    </div>
+                    <div class="col-sm-6">
+                        <div class="text-muted small">Last Updated</div>
+                        <div class="fw-semibold">@_student.UpdatedAt.ToString("yyyy-MM-dd HH:mm") UTC</div>
+                    </div>
+                    <div class="col-12 pt-3 border-top">
+                        <div class="text-muted small mb-1">Profile Bio / Academic Notes</div>
+                        <p class="mb-0">@(string.IsNullOrWhiteSpace(_student.Bio) ? "No additional bio notes recorded." : _student.Bio)</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+
+    private StudentDto? _student;
+    private string? _errorMessage;
+    private bool _isLoading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _isLoading = true;
+        _errorMessage = null;
+
+        var access = AuthStateProvider.GetAccessContext();
+        var result = await StudentService.GetStudentByIdAsync(Id, access);
+        if (!result.Succeeded || result.Data is null)
+        {
+            _errorMessage = result.Message ?? "Unable to load student details.";
+        }
+        else
+        {
+            _student = result.Data;
+        }
+
+        _isLoading = false;
+    }
+}

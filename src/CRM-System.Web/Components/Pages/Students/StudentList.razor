@@ -1,0 +1,337 @@
+@page "/students"
+@inject CrmAuthStateProvider AuthStateProvider
+@inject IStudentService StudentService
+
+<PageTitle>Student Directory — Student CRM</PageTitle>
+
+@{
+    var access = AuthStateProvider.GetAccessContext();
+}
+
+@if (!access.IsAuthenticated)
+{
+    <EmptyStateCard Icon="🔒" Title="Authentication Required" Description="Please sign in with an Administrator account to manage student records.">
+        <a href="login" class="btn btn-primary">Sign In</a>
+    </EmptyStateCard>
+}
+else if (!access.IsAdmin)
+{
+    <EmptyStateCard Icon="🛡️" Title="Administrator Access Required" Description="Only university administrators can view and manage the full student directory. You can view and edit your own student record on your profile page.">
+        <a href="profile" class="btn btn-primary">Go to My Profile</a>
+    </EmptyStateCard>
+}
+else
+{
+    <div class="crm-page-header">
+        <div>
+            <h1 class="crm-page-title">Student Management Directory</h1>
+            <p class="crm-page-subtitle">Create, search, filter, update, and manage university student records</p>
+        </div>
+        <a href="students/create" class="btn btn-primary">
+            + Add New Student
+        </a>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_feedbackMessage))
+    {
+        <div class="alert @(_feedbackIsError ? "alert-danger" : "alert-success") py-2 px-3 small d-flex justify-content-between align-items-center">
+            <span>@_feedbackMessage</span>
+            <button type="button" class="btn-close btn-sm" @onclick="() => _feedbackMessage = null"></button>
+        </div>
+    }
+
+    @if (_stats is not null)
+    {
+        <div class="row g-3 mb-4">
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Total Records" Value="@_stats.TotalStudents.ToString()" Subtitle="All enrolled & archived students" Icon="🎓" Variant="primary" />
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Active Students" Value="@_stats.ActiveStudents.ToString()" Subtitle="In good academic standing" Icon="✅" Variant="success" />
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Inactive / Suspended" Value="@((_stats.InactiveStudents + _stats.SuspendedStudents).ToString())" Subtitle="Deactivated or on leave" Icon="⏸️" Variant="warning" />
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Faculties &amp; Schools" Value="@_stats.FacultiesCount.ToString()" Subtitle="@($"{_stats.DepartmentsCount} active departments")" Icon="🏛️" Variant="info" />
+            </div>
+        </div>
+    }
+
+    <div class="crm-card p-3 mb-4">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-4">
+                <label class="crm-form-label">Search Students</label>
+                <input type="text"
+                       class="form-control"
+                       placeholder="Search by name, email, student ID, program..."
+                       @bind="_filter.SearchTerm"
+                       @bind:event="oninput"
+                       @onkeyup="ApplyFiltersAsync" />
+            </div>
+
+            <div class="col-sm-6 col-md-3">
+                <label class="crm-form-label">Faculty</label>
+                <select class="form-select" @bind="_filter.Faculty" @bind:after="ApplyFiltersAsync">
+                    <option value="">All Faculties</option>
+                    @foreach (var faculty in _faculties)
+                    {
+                        <option value="@faculty">@faculty</option>
+                    }
+                </select>
+            </div>
+
+            <div class="col-6 col-md-2">
+                <label class="crm-form-label">Study Year</label>
+                <select class="form-select" @bind="_selectedYearStr" @bind:after="OnYearFilterChangedAsync">
+                    <option value="">All Years</option>
+                    @for (var y = 1; y <= 6; y++)
+                    {
+                        <option value="@y">Year @y</option>
+                    }
+                </select>
+            </div>
+
+            <div class="col-6 col-md-2">
+                <label class="crm-form-label">Status</label>
+                <select class="form-select" @bind="_selectedStatusStr" @bind:after="OnStatusFilterChangedAsync">
+                    <option value="">All Statuses</option>
+                    @foreach (var status in Enum.GetValues<StudentStatus>())
+                    {
+                        <option value="@status">@status</option>
+                    }
+                </select>
+            </div>
+
+            <div class="col-md-1 d-grid">
+                <button type="button" class="btn btn-outline-secondary" title="Reset filters" @onclick="ResetFiltersAsync">
+                    Reset
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (_isLoading)
+    {
+        <div class="crm-card p-5 text-center text-muted">Loading student records...</div>
+    }
+    else if (_students.Count == 0)
+    {
+        <EmptyStateCard Icon="🔍" Title="No Matching Students Found" Description="No student records matched your current search or filter criteria.">
+            <button type="button" class="btn btn-outline-primary" @onclick="ResetFiltersAsync">Clear Filters</button>
+            <a href="students/create" class="btn btn-primary">+ Create Student</a>
+        </EmptyStateCard>
+    }
+    else
+    {
+        <div class="crm-card overflow-hidden">
+            <div class="table-responsive">
+                <table class="table crm-table mb-0">
+                    <thead>
+                        <tr>
+                            <th>Student</th>
+                            <th>Student ID</th>
+                            <th>Faculty &amp; Department</th>
+                            <th>Study Program</th>
+                            <th>Year</th>
+                            <th>Status</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var student in _students)
+                        {
+                            <tr>
+                                <td>
+                                    <div class="d-flex align-items-center gap-3">
+                                        <span class="crm-avatar">@student.Initials</span>
+                                        <div>
+                                            <a href="@($"students/{student.Id}")" class="fw-semibold text-dark text-decoration-none">
+                                                @student.FullName
+                                            </a>
+                                            <div class="text-muted small">@student.Email</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="badge bg-light text-dark border font-monospace">@student.StudentNumber</span>
+                                </td>
+                                <td>
+                                    <div class="fw-medium small">@student.Faculty</div>
+                                    <div class="text-muted" style="font-size: 0.78rem;">@student.Department</div>
+                                </td>
+                                <td>
+                                    <span class="small">@student.StudyProgram</span>
+                                </td>
+                                <td>
+                                    <span class="badge bg-primary-subtle text-primary-emphasis">Year @student.StudyYear</span>
+                                </td>
+                                <td>
+                                    <StatusBadge Status="student.Status" />
+                                </td>
+                                <td class="text-end">
+                                    <div class="d-inline-flex gap-1">
+                                        <a href="@($"students/{student.Id}")" class="btn btn-sm btn-outline-secondary" title="View Details">
+                                            View
+                                        </a>
+                                        <a href="@($"students/{student.Id}/edit")" class="btn btn-sm btn-outline-primary" title="Edit Student">
+                                            Edit
+                                        </a>
+                                        @if (student.Status == StudentStatus.Active)
+                                        {
+                                            <button type="button"
+                                                    class="btn btn-sm btn-outline-warning"
+                                                    title="Deactivate Student"
+                                                    @onclick="() => ToggleStudentStatusAsync(student, StudentStatus.Inactive)">
+                                                Deactivate
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <button type="button"
+                                                    class="btn btn-sm btn-outline-success"
+                                                    title="Activate Student"
+                                                    @onclick="() => ToggleStudentStatusAsync(student, StudentStatus.Active)">
+                                                Activate
+                                            </button>
+                                        }
+                                        <button type="button"
+                                                class="btn btn-sm btn-outline-danger"
+                                                title="Delete Student"
+                                                @onclick="() => PromptDelete(student)">
+                                            Delete
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
+    <ConfirmDialog IsVisible="@(_studentPendingDelete is not null)"
+                   Title="Delete Student Record"
+                   Message="@($"Are you sure you want to permanently delete {_studentPendingDelete?.FullName} ({_studentPendingDelete?.StudentNumber})? This action cannot be undone.")"
+                   ConfirmText="Delete Student"
+                   ConfirmButtonClass="btn-danger"
+                   OnCancel="CancelDelete"
+                   OnConfirm="ConfirmDeleteAsync" />
+}
+
+@code {
+    private readonly StudentFilterDto _filter = new();
+    private IReadOnlyList<StudentDto> _students = [];
+    private IReadOnlyList<string> _faculties = [];
+    private StudentDirectoryStatsDto? _stats;
+    private StudentDto? _studentPendingDelete;
+    private string _selectedYearStr = string.Empty;
+    private string _selectedStatusStr = string.Empty;
+    private bool _isLoading = true;
+    private string? _feedbackMessage;
+    private bool _feedbackIsError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDirectoryAsync();
+    }
+
+    private async Task LoadDirectoryAsync()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        if (!access.IsAdmin)
+        {
+            _isLoading = false;
+            return;
+        }
+
+        _isLoading = true;
+        _faculties = await StudentService.GetDistinctFacultiesAsync();
+
+        var statsResult = await StudentService.GetDirectoryStatsAsync(access);
+        if (statsResult.Succeeded)
+        {
+            _stats = statsResult.Data;
+        }
+
+        var listResult = await StudentService.GetStudentsAsync(_filter, access);
+        if (listResult.Succeeded && listResult.Data is not null)
+        {
+            _students = listResult.Data;
+        }
+        _isLoading = false;
+    }
+
+    private async Task ApplyFiltersAsync()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        if (!access.IsAdmin)
+        {
+            return;
+        }
+
+        var listResult = await StudentService.GetStudentsAsync(_filter, access);
+        if (listResult.Succeeded && listResult.Data is not null)
+        {
+            _students = listResult.Data;
+        }
+    }
+
+    private async Task OnYearFilterChangedAsync()
+    {
+        _filter.StudyYear = int.TryParse(_selectedYearStr, out var y) ? y : null;
+        await ApplyFiltersAsync();
+    }
+
+    private async Task OnStatusFilterChangedAsync()
+    {
+        _filter.Status = Enum.TryParse<StudentStatus>(_selectedStatusStr, out var st) ? st : null;
+        await ApplyFiltersAsync();
+    }
+
+    private async Task ResetFiltersAsync()
+    {
+        _filter.SearchTerm = null;
+        _filter.Faculty = null;
+        _filter.StudyYear = null;
+        _filter.Status = null;
+        _selectedYearStr = string.Empty;
+        _selectedStatusStr = string.Empty;
+        await ApplyFiltersAsync();
+    }
+
+    private async Task ToggleStudentStatusAsync(StudentDto student, StudentStatus newStatus)
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        var result = await StudentService.SetStudentStatusAsync(student.Id, newStatus, access);
+        _feedbackIsError = !result.Succeeded;
+        _feedbackMessage = result.Message;
+        await LoadDirectoryAsync();
+    }
+
+    private void PromptDelete(StudentDto student)
+    {
+        _studentPendingDelete = student;
+    }
+
+    private void CancelDelete()
+    {
+        _studentPendingDelete = null;
+    }
+
+    private async Task ConfirmDeleteAsync()
+    {
+        if (_studentPendingDelete is null)
+        {
+            return;
+        }
+
+        var access = AuthStateProvider.GetAccessContext();
+        var result = await StudentService.DeleteStudentAsync(_studentPendingDelete.Id, access);
+        _feedbackIsError = !result.Succeeded;
+        _feedbackMessage = result.Message;
+        _studentPendingDelete = null;
+        await LoadDirectoryAsync();
+    }
+}

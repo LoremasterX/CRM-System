@@ -1,0 +1,113 @@
+@page "/login"
+@inject IAuthService AuthService
+@inject CrmAuthStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>Sign In — Student CRM</PageTitle>
+
+<div class="row justify-content-center py-3">
+    <div class="col-md-8 col-lg-5">
+        <div class="crm-card p-4 p-md-5">
+            <div class="text-center mb-4">
+                <div class="crm-avatar mx-auto mb-3" style="width: 3.25rem; height: 3.25rem; font-size: 1.1rem;">CRM</div>
+                <h1 class="h4 fw-bold mb-1">Sign in to Student CRM</h1>
+                <p class="text-muted small mb-0">Access your academic portal, profile, and university tools</p>
+            </div>
+
+            @if (_errors.Count > 0)
+            {
+                <div class="alert alert-danger py-2 px-3 small">
+                    @foreach (var err in _errors)
+                    {
+                        <div>• @err</div>
+                    }
+                </div>
+            }
+
+            <EditForm Model="_model" OnValidSubmit="HandleLoginAsync" FormName="LoginForm">
+                <DataAnnotationsValidator />
+
+                <div class="mb-3">
+                    <label class="crm-form-label" for="login-email">Email Address</label>
+                    <InputText id="login-email" class="form-control" @bind-Value="_model.Email" placeholder="name@student.crm.edu" />
+                    <ValidationMessage For="() => _model.Email" />
+                </div>
+
+                <div class="mb-3">
+                    <label class="crm-form-label" for="login-password">Password</label>
+                    <InputText id="login-password" type="password" class="form-control" @bind-Value="_model.Password" placeholder="Enter your password" />
+                    <ValidationMessage For="() => _model.Password" />
+                </div>
+
+                <div class="form-check mb-3">
+                    <InputCheckbox id="login-remember" class="form-check-input" @bind-Value="_model.RememberMe" />
+                    <label class="form-check-label small text-muted" for="login-remember">
+                        Keep me signed in on this browser
+                    </label>
+                </div>
+
+                <button type="submit" class="btn btn-primary w-100 py-2" disabled="@_isSubmitting">
+                    @(_isSubmitting ? "Signing in..." : "Sign In")
+                </button>
+            </EditForm>
+
+            <div class="mt-4 pt-3 border-top">
+                <div class="text-muted small fw-semibold mb-2">Demo Accounts (One-Click Fill &amp; Sign In):</div>
+                <div class="d-grid gap-2">
+                    <button type="button" class="btn btn-outline-secondary btn-sm text-start" @onclick='() => FillAndLoginAsync("admin@crm.edu", "Admin123!")'>
+                        🔑 <strong>Administrator:</strong> admin@crm.edu / Admin123!
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm text-start" @onclick='() => FillAndLoginAsync("aidar.nurlanov@student.crm.edu", "Student123!")'>
+                        🎓 <strong>Student 1:</strong> aidar.nurlanov@student.crm.edu / Student123!
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm text-start" @onclick='() => FillAndLoginAsync("alina.kassymova@student.crm.edu", "Student123!")'>
+                        🎓 <strong>Student 2:</strong> alina.kassymova@student.crm.edu / Student123!
+                    </button>
+                </div>
+            </div>
+
+            <div class="text-center mt-4 small text-muted">
+                Don't have a student account yet? <a href="register" class="fw-semibold">Create an account</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private LoginRequestDto _model = new();
+    private IReadOnlyList<string> _errors = [];
+    private bool _isSubmitting;
+
+    private async Task HandleLoginAsync()
+    {
+        _isSubmitting = true;
+        _errors = [];
+
+        try
+        {
+            var result = await AuthService.LoginAsync(_model);
+            if (!result.Succeeded || result.Data is null)
+            {
+                _errors = result.Errors.Count > 0 ? result.Errors : [result.Message ?? "Invalid login attempt."];
+                return;
+            }
+
+            await AuthStateProvider.SignInAsync(result.Data);
+            Navigation.NavigateTo(
+                string.Equals(result.Data.Role, UserRoles.Admin, StringComparison.OrdinalIgnoreCase)
+                    ? "students"
+                    : "profile");
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+
+    private async Task FillAndLoginAsync(string email, string password)
+    {
+        _model.Email = email;
+        _model.Password = password;
+        await HandleLoginAsync();
+    }
+}

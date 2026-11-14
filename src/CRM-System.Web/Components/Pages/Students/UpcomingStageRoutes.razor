@@ -1,0 +1,59 @@
+@page "/courses"
+@page "/academic-performance"
+@page "/schedule"
+@page "/attendance"
+@page "/tasks"
+@page "/calendar"
+@page "/notifications"
+@inject NavigationManager Navigation
+
+<PageTitle>@GetModuleTitle() — Student CRM</PageTitle>
+
+<div class="crm-page-header">
+    <div>
+        <h1 class="crm-page-title">@GetModuleTitle()</h1>
+        <p class="crm-page-subtitle">@GetStageBadge() • Planned Sequential Delivery Module</p>
+    </div>
+    <a href="" class="btn btn-outline-primary">← Back to Dashboard</a>
+</div>
+
+<EmptyStateCard Icon="🚀"
+                Title="@($"{GetModuleTitle()} ({GetStageBadge()})")"
+                Description="@GetModuleDescription()">
+    <a href="profile" class="btn btn-primary">Go to My Profile</a>
+    <a href="" class="btn btn-outline-secondary">Return to Dashboard</a>
+</EmptyStateCard>
+
+@code {
+    private string GetCurrentSegment()
+    {
+        var relative = Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0].Trim('/').ToLowerInvariant();
+        return relative;
+    }
+
+    private string GetModuleTitle() => GetCurrentSegment() switch
+    {
+        "courses" => "Courses & Enrollment",
+        "academic-performance" => "Academic Performance & GPA",
+        "schedule" => "Weekly Class Schedule",
+        "attendance" => "Attendance Tracking",
+        "tasks" => "Student Tasks & Deadlines",
+        "calendar" => "Academic Calendar",
+        "notifications" => "Notifications Center",
+        _ => "Academic Module"
+    };
+
+    private string GetStageBadge() => GetCurrentSegment() switch
+    {
+        "courses" or "academic-performance" or "schedule" or "attendance" => "Stage 2: Academic Management",
+        _ => "Stage 3: Tasks & Notifications"
+    };
+
+    private string GetModuleDescription() => GetCurrentSegment() switch
+    {
+        "courses" or "academic-performance" or "schedule" or "attendance" =>
+            "This module is part of Stage 2 (02_Academic_Management.zip) and will provide full course management, teacher profiles, enrollments, configurable GPA grading, schedules, and attendance tracking.",
+        _ =>
+            "This module is part of Stage 3 (03_Tasks_Notifications.zip) and will provide student task management, overdue calculation, academic calendar events, and persisted in-app notifications."
+    };
+}

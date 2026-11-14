@@ -1,0 +1,25 @@
+<div class="crm-card p-5 text-center">
+    <div class="fs-1 mb-2">@Icon</div>
+    <h5 class="fw-bold mb-1">@Title</h5>
+    <p class="text-muted mb-3 mx-auto" style="max-width: 460px;">@Description</p>
+    @if (ChildContent is not null)
+    {
+        <div class="d-flex justify-content-center gap-2">
+            @ChildContent
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string Icon { get; set; } = "📭";
+
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public string Description { get; set; } = string.Empty;
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+}

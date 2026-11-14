@@ -1,0 +1,18 @@
+<span class="crm-badge @GetBadgeClass()">
+    <span style="width: 6px; height: 6px; border-radius: 50%; background-color: currentColor;"></span>
+    @Status
+</span>
+
+@code {
+    [Parameter, EditorRequired]
+    public StudentStatus Status { get; set; }
+
+    private string GetBadgeClass() => Status switch
+    {
+        StudentStatus.Active => "crm-badge-success",
+        StudentStatus.Inactive => "crm-badge-secondary",
+        StudentStatus.Graduated => "crm-badge-info",
+        StudentStatus.Suspended => "crm-badge-danger",
+        _ => "crm-badge-secondary"
+    };
+}

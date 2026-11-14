@@ -1,6 +1,27 @@
 @CRM_System.API_HostAddress = http://localhost:5283
 
-GET {{CRM_System.API_HostAddress}}/weatherforecast/
+### Health Check
+GET {{CRM_System.API_HostAddress}}/api/health
 Accept: application/json
 
-###
+### Login as Administrator
+POST {{CRM_System.API_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@crm.edu",
+  "password": "Admin123!",
+  "rememberMe": true
+}
+
+### Get Current Authenticated User
+GET {{CRM_System.API_HostAddress}}/api/auth/me
+Accept: application/json
+
+### Get All Students (Admin)
+GET {{CRM_System.API_HostAddress}}/api/students?searchTerm=&sortBy=FullName
+Accept: application/json
+
+### Get Student by ID
+GET {{CRM_System.API_HostAddress}}/api/students/1
+Accept: application/json

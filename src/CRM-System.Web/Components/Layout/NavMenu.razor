@@ -1,30 +1,133 @@
-﻿<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="">CRM-System.Web</a>
+@implements IDisposable
+@inject CrmAuthStateProvider AuthStateProvider
+
+<div class="top-row ps-3 navbar navbar-dark">
+    <div class="container-fluid d-flex align-items-center gap-2">
+        <div class="brand-logo">CRM</div>
+        <div>
+            <a class="navbar-brand fw-bold m-0 d-block lh-1" href="">Student CRM</a>
+            <small class="text-white-50" style="font-size: 0.7rem;">Academic Workspace</small>
+        </div>
     </div>
 </div>
 
 <input type="checkbox" title="Navigation menu" class="navbar-toggler" />
 
 <div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="nav flex-column">
+    <nav class="nav flex-column py-2">
+        <div class="nav-section-label px-3">OVERVIEW</div>
+
         <div class="nav-item px-3">
             <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
+                <span class="nav-icon">📊</span> Dashboard
             </NavLink>
         </div>
 
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="counter">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Counter
-            </NavLink>
-        </div>
+        @if (AuthStateProvider.CurrentUser is { } user)
+        {
+            <div class="nav-section-label px-3 mt-2">STUDENT MANAGEMENT</div>
 
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="weather">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Weather
-            </NavLink>
-        </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="profile">
+                    <span class="nav-icon">👤</span> My Profile
+                </NavLink>
+            </div>
+
+            @if (string.Equals(user.Role, UserRoles.Admin, StringComparison.OrdinalIgnoreCase))
+            {
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="students">
+                        <span class="nav-icon">🎓</span> Students
+                    </NavLink>
+                </div>
+            }
+
+            <div class="nav-section-label px-3 mt-2">ACADEMICS</div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="courses">
+                    <span class="nav-icon">📚</span> Courses
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="academic-performance">
+                    <span class="nav-icon">📈</span> Academic Performance
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="schedule">
+                    <span class="nav-icon">🗓️</span> Schedule
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="attendance">
+                    <span class="nav-icon">✅</span> Attendance
+                </NavLink>
+            </div>
+
+            <div class="nav-section-label px-3 mt-2">PRODUCTIVITY</div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="tasks">
+                    <span class="nav-icon">📝</span> Tasks
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="calendar">
+                    <span class="nav-icon">📅</span> Calendar
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="notifications">
+                    <span class="nav-icon">🔔</span> Notifications
+                </NavLink>
+            </div>
+
+            <div class="nav-section-label px-3 mt-2">ACCOUNT</div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="settings">
+                    <span class="nav-icon">⚙️</span> Settings
+                </NavLink>
+            </div>
+        }
+        else
+        {
+            <div class="nav-section-label px-3 mt-2">AUTHENTICATION</div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="login">
+                    <span class="nav-icon">🔐</span> Sign In
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="register">
+                    <span class="nav-icon">✨</span> Student Registration
+                </NavLink>
+            </div>
+        }
     </nav>
 </div>
 
+@code {
+    protected override void OnInitialized()
+    {
+        AuthStateProvider.AuthenticationStateChanged += OnAuthStateChanged;
+    }
+
+    private void OnAuthStateChanged(Task<AuthenticationState> task)
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        AuthStateProvider.AuthenticationStateChanged -= OnAuthStateChanged;
+    }
+}

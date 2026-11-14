@@ -1,0 +1,314 @@
+@page "/profile"
+@inject CrmAuthStateProvider AuthStateProvider
+@inject IStudentService StudentService
+
+<PageTitle>My Profile — Student CRM</PageTitle>
+
+@if (!AuthStateProvider.GetAccessContext().IsAuthenticated)
+{
+    <EmptyStateCard Icon="🔒" Title="Sign In Required" Description="Please sign in with your Student CRM account to view and manage your personal profile.">
+        <a href="login" class="btn btn-primary">Sign In</a>
+        <a href="register" class="btn btn-outline-secondary">Register as Student</a>
+    </EmptyStateCard>
+}
+else if (_isLoading)
+{
+    <div class="crm-card p-5 text-center text-muted">Loading profile information...</div>
+}
+else if (_student is null)
+{
+    var user = AuthStateProvider.CurrentUser!;
+    <div class="crm-card p-4 p-md-5">
+        <div class="d-flex align-items-center gap-3 mb-4">
+            <div class="crm-avatar crm-avatar-lg">AD</div>
+            <div>
+                <h2 class="h4 fw-bold mb-1">@user.FullName</h2>
+                <span class="crm-badge crm-badge-primary">@user.Role</span>
+                <div class="text-muted small mt-1">@user.Email</div>
+            </div>
+        </div>
+        <p class="text-muted mb-3">
+            You are signed in with an <strong>@user.Role</strong> system account. Administrator accounts manage the university student directory and academic records.
+        </p>
+        <div class="d-flex gap-2">
+            <a href="students" class="btn btn-primary">Manage Student Directory</a>
+            <a href="settings" class="btn btn-outline-secondary">Account Security Settings</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="crm-page-header">
+        <div>
+            <h1 class="crm-page-title">My Academic Profile</h1>
+            <p class="crm-page-subtitle">View your university record and update permitted personal information</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="settings" class="btn btn-outline-secondary">Security &amp; Password</a>
+            <button type="button" class="btn @(_isEditing ? "btn-outline-secondary" : "btn-primary")" @onclick="ToggleEditMode">
+                @(_isEditing ? "Cancel Editing" : "✏️ Edit Profile")
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_successMessage))
+    {
+        <div class="alert alert-success py-2 px-3 small">@_successMessage</div>
+    }
+
+    @if (_errors.Count > 0)
+    {
+        <div class="alert alert-danger py-2 px-3 small">
+            @foreach (var err in _errors)
+            {
+                <div>• @err</div>
+            }
+        </div>
+    }
+
+    <div class="row g-4">
+        <div class="col-lg-4">
+            <div class="crm-card p-4 h-100">
+                <div class="text-center pb-3 border-bottom">
+                    <div class="crm-avatar crm-avatar-lg mx-auto mb-3">@_student.Initials</div>
+                    <h4 class="fw-bold mb-1">@_student.FullName</h4>
+                    <div class="text-muted small mb-2">@_student.Email</div>
+                    <div class="d-flex justify-content-center gap-2 flex-wrap">
+                        <span class="crm-badge crm-badge-primary">@_student.StudentNumber</span>
+                        <StatusBadge Status="_student.Status" />
+                    </div>
+                </div>
+
+                <div class="pt-3 small">
+                    <div class="mb-2 d-flex justify-content-between">
+                        <span class="text-muted">University:</span>
+                        <span class="fw-semibold text-end">@_student.University</span>
+                    </div>
+                    <div class="mb-2 d-flex justify-content-between">
+                        <span class="text-muted">Faculty:</span>
+                        <span class="fw-semibold text-end">@_student.Faculty</span>
+                    </div>
+                    <div class="mb-2 d-flex justify-content-between">
+                        <span class="text-muted">Department:</span>
+                        <span class="fw-semibold text-end">@_student.Department</span>
+                    </div>
+                    <div class="mb-2 d-flex justify-content-between">
+                        <span class="text-muted">Program:</span>
+                        <span class="fw-semibold text-end">@_student.StudyProgram</span>
+                    </div>
+                    <div class="mb-2 d-flex justify-content-between">
+                        <span class="text-muted">Study Year:</span>
+                        <span class="fw-semibold">Year @_student.StudyYear</span>
+                    </div>
+                    <div class="mb-2 d-flex justify-content-between">
+                        <span class="text-muted">Enrolled Since:</span>
+                        <span class="fw-semibold">@_student.EnrollmentDate.ToString("MMM dd, yyyy")</span>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <span class="text-muted">Last Updated:</span>
+                        <span class="fw-semibold">@_student.UpdatedAt.ToString("MMM dd, yyyy")</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-8">
+            <div class="crm-card p-4 h-100">
+                @if (!_isEditing)
+                {
+                    <h5 class="fw-bold mb-3">Personal &amp; Academic Details</h5>
+                    <div class="row g-3">
+                        <div class="col-sm-6">
+                            <div class="text-muted small">Full Name</div>
+                            <div class="fw-semibold">@_student.FullName</div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="text-muted small">Student ID (Read-Only)</div>
+                            <div class="fw-semibold">@_student.StudentNumber</div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="text-muted small">University Email (Read-Only)</div>
+                            <div class="fw-semibold">@_student.Email</div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="text-muted small">Phone Number</div>
+                            <div class="fw-semibold">@(string.IsNullOrWhiteSpace(_student.PhoneNumber) ? "Not provided" : _student.PhoneNumber)</div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="text-muted small">Date of Birth</div>
+                            <div class="fw-semibold">@(_student.DateOfBirth?.ToString("MMMM dd, yyyy") ?? "Not provided")</div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="text-muted small">Academic Status</div>
+                            <div><StatusBadge Status="_student.Status" /></div>
+                        </div>
+                        <div class="col-12 pt-2 border-top">
+                            <div class="text-muted small mb-1">Profile Bio &amp; Academic Interests</div>
+                            <p class="mb-0">@(string.IsNullOrWhiteSpace(_student.Bio) ? "No profile bio added yet. Click 'Edit Profile' to share your academic interests and goals." : _student.Bio)</p>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <h5 class="fw-bold mb-3">Edit Permitted Personal Information</h5>
+                    <EditForm Model="_editModel" OnValidSubmit="HandleSaveProfileAsync" FormName="UpdatePersonalProfileForm">
+                        <DataAnnotationsValidator />
+
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="crm-form-label">Full Name *</label>
+                                <InputText class="form-control" @bind-Value="_editModel.FullName" />
+                                <ValidationMessage For="() => _editModel.FullName" />
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="crm-form-label">Phone Number</label>
+                                <InputText class="form-control" @bind-Value="_editModel.PhoneNumber" placeholder="+7 (701) 000-0000" />
+                                <ValidationMessage For="() => _editModel.PhoneNumber" />
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="crm-form-label">Date of Birth</label>
+                                <InputDate class="form-control" @bind-Value="_editModel.DateOfBirth" />
+                                <ValidationMessage For="() => _editModel.DateOfBirth" />
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="crm-form-label">Study Year (1 - 6) *</label>
+                                <InputNumber class="form-control" @bind-Value="_editModel.StudyYear" min="1" max="6" />
+                                <ValidationMessage For="() => _editModel.StudyYear" />
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="crm-form-label">University *</label>
+                                <InputText class="form-control" @bind-Value="_editModel.University" />
+                                <ValidationMessage For="() => _editModel.University" />
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="crm-form-label">Faculty *</label>
+                                <InputText class="form-control" @bind-Value="_editModel.Faculty" />
+                                <ValidationMessage For="() => _editModel.Faculty" />
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="crm-form-label">Department *</label>
+                                <InputText class="form-control" @bind-Value="_editModel.Department" />
+                                <ValidationMessage For="() => _editModel.Department" />
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="crm-form-label">Study Program *</label>
+                                <InputText class="form-control" @bind-Value="_editModel.StudyProgram" />
+                                <ValidationMessage For="() => _editModel.StudyProgram" />
+                            </div>
+
+                            <div class="col-12">
+                                <label class="crm-form-label">Profile Bio &amp; Academic Information</label>
+                                <InputTextArea class="form-control" rows="3" @bind-Value="_editModel.Bio" />
+                                <ValidationMessage For="() => _editModel.Bio" />
+                            </div>
+                        </div>
+
+                        <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
+                            <button type="button" class="btn btn-outline-secondary" @onclick="ToggleEditMode">Cancel</button>
+                            <button type="submit" class="btn btn-primary" disabled="@_isSaving">
+                                @(_isSaving ? "Saving..." : "Save Changes")
+                            </button>
+                        </div>
+                    </EditForm>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private StudentDto? _student;
+    private UpdatePersonalProfileRequestDto _editModel = new();
+    private bool _isLoading = true;
+    private bool _isEditing;
+    private bool _isSaving;
+    private string? _successMessage;
+    private IReadOnlyList<string> _errors = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProfileAsync();
+    }
+
+    private async Task LoadProfileAsync()
+    {
+        _isLoading = true;
+        var access = AuthStateProvider.GetAccessContext();
+        if (access.IsAuthenticated && access.UserId.HasValue)
+        {
+            var result = await StudentService.GetStudentByUserIdAsync(access.UserId.Value, access);
+            if (result.Succeeded && result.Data is not null)
+            {
+                _student = result.Data;
+                PopulateEditModel(_student);
+            }
+        }
+        _isLoading = false;
+    }
+
+    private void PopulateEditModel(StudentDto student)
+    {
+        _editModel = new UpdatePersonalProfileRequestDto
+        {
+            FullName = student.FullName,
+            PhoneNumber = student.PhoneNumber,
+            DateOfBirth = student.DateOfBirth,
+            University = student.University,
+            Faculty = student.Faculty,
+            Department = student.Department,
+            StudyProgram = student.StudyProgram,
+            StudyYear = student.StudyYear,
+            Bio = student.Bio
+        };
+    }
+
+    private void ToggleEditMode()
+    {
+        _errors = [];
+        _successMessage = null;
+        if (_student is not null)
+        {
+            PopulateEditModel(_student);
+        }
+        _isEditing = !_isEditing;
+    }
+
+    private async Task HandleSaveProfileAsync()
+    {
+        if (_student is null)
+        {
+            return;
+        }
+
+        _isSaving = true;
+        _errors = [];
+        _successMessage = null;
+
+        try
+        {
+            var access = AuthStateProvider.GetAccessContext();
+            var result = await StudentService.UpdatePersonalProfileAsync(_student.Id, _editModel, access);
+            if (!result.Succeeded || result.Data is null)
+            {
+                _errors = result.Errors.Count > 0 ? result.Errors : [result.Message ?? "Failed to update profile."];
+                return;
+            }
+
+            _student = result.Data;
+            _isEditing = false;
+            _successMessage = result.Message ?? "Profile updated successfully.";
+            await AuthStateProvider.RefreshCurrentUserAsync();
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+}

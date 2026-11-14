@@ -1,4 +1,7 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject CrmAuthStateProvider AuthStateProvider
+@inject NavigationManager Navigation
 
 <div class="page">
     <div class="sidebar">
@@ -6,11 +9,49 @@
     </div>
 
     <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
-        </div>
+        <header class="top-row px-4">
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge bg-primary-subtle text-primary-emphasis border border-primary-subtle fw-semibold">
+                    Student CRM Platform
+                </span>
+                <span class="text-muted small d-none d-md-inline">University Academic &amp; Productivity Hub</span>
+            </div>
 
-        <article class="content px-4">
+            <div class="d-flex align-items-center gap-3">
+                @if (AuthStateProvider.CurrentUser is { } user)
+                {
+                    <a href="notifications" class="top-icon-btn" title="Notifications">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M8 16a2 2 0 0 0 2-2H6a2 2 0 0 0 2 2M8 1.918l-.797.161A4 4 0 0 0 4 6c0 .628-.134 2.197-.459 3.742-.16.767-.376 1.566-.663 2.258h10.244c-.287-.692-.502-1.49-.663-2.258C12.134 8.197 12 6.628 12 6a4 4 0 0 0-3.203-3.92zM14.22 12c.223.447.481.801.78 1H1c.299-.199.557-.553.78-1C2.68 10.2 3 6.88 3 6c0-2.42 1.72-4.44 4.005-4.901a1 1 0 1 1 1.99 0A5 5 0 0 1 13 6c0 .88.32 4.2 1.22 6"/>
+                        </svg>
+                        <span class="notification-dot"></span>
+                    </a>
+
+                    <a href="profile" class="d-flex align-items-center gap-2 text-decoration-none text-dark">
+                        <span class="crm-avatar" style="width: 2.1rem; height: 2.1rem; font-size: 0.78rem;">
+                            @GetInitials(user.FullName)
+                        </span>
+                        <div class="d-none d-sm-block lh-sm text-start">
+                            <div class="fw-semibold" style="font-size: 0.85rem;">@user.FullName</div>
+                            <div class="text-muted" style="font-size: 0.72rem;">
+                                @user.Role @(string.IsNullOrWhiteSpace(user.StudentNumber) ? "" : $"• {user.StudentNumber}")
+                            </div>
+                        </div>
+                    </a>
+
+                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="HandleLogoutAsync">
+                        Sign Out
+                    </button>
+                }
+                else
+                {
+                    <a href="login" class="btn btn-outline-primary btn-sm">Sign In</a>
+                    <a href="register" class="btn btn-primary btn-sm">Register</a>
+                }
+            </div>
+        </header>
+
+        <article class="content px-4 py-4">
             @Body
         </article>
     </main>
@@ -21,3 +62,51 @@
     <a href="." class="reload">Reload</a>
     <span class="dismiss">🗙</span>
 </div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        AuthStateProvider.AuthenticationStateChanged += OnAuthenticationStateChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await AuthStateProvider.EnsureInitializedAsync();
+            StateHasChanged();
+        }
+    }
+
+    private void OnAuthenticationStateChanged(Task<AuthenticationState> task)
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task HandleLogoutAsync()
+    {
+        await AuthStateProvider.SignOutAsync();
+        Navigation.NavigateTo("login");
+    }
+
+    private static string GetInitials(string? fullName)
+    {
+        if (string.IsNullOrWhiteSpace(fullName))
+        {
+            return "U";
+        }
+
+        var parts = fullName.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return parts.Length switch
+        {
+            0 => "U",
+            1 => parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant(),
+            _ => $"{char.ToUpperInvariant(parts[0][0])}{char.ToUpperInvariant(parts[^1][0])}"
+        };
+    }
+
+    public void Dispose()
+    {
+        AuthStateProvider.AuthenticationStateChanged -= OnAuthenticationStateChanged;
+    }
+}

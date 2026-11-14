@@ -1,0 +1,182 @@
+@page "/students/create"
+@inject CrmAuthStateProvider AuthStateProvider
+@inject IStudentService StudentService
+@inject NavigationManager Navigation
+
+<PageTitle>Create Student — Student CRM</PageTitle>
+
+@{
+    var access = AuthStateProvider.GetAccessContext();
+}
+
+@if (!access.IsAuthenticated || !access.IsAdmin)
+{
+    <EmptyStateCard Icon="🛡️" Title="Administrator Access Required" Description="Only university administrators are authorized to create new student records.">
+        <a href="profile" class="btn btn-primary">Return to Profile</a>
+    </EmptyStateCard>
+}
+else
+{
+    <div class="crm-page-header">
+        <div>
+            <h1 class="crm-page-title">Add New Student Record</h1>
+            <p class="crm-page-subtitle">Create a new student profile and optionally provision a portal login account</p>
+        </div>
+        <a href="students" class="btn btn-outline-secondary">← Back to Directory</a>
+    </div>
+
+    <div class="crm-card p-4 p-md-5">
+        @if (_errors.Count > 0)
+        {
+            <div class="alert alert-danger py-2 px-3 small">
+                @foreach (var err in _errors)
+                {
+                    <div>• @err</div>
+                }
+            </div>
+        }
+
+        <EditForm Model="_model" OnValidSubmit="HandleCreateAsync" FormName="CreateStudentForm">
+            <DataAnnotationsValidator />
+
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="crm-form-label">Full Name *</label>
+                    <InputText class="form-control" @bind-Value="_model.FullName" placeholder="e.g., Arman Seitov" />
+                    <ValidationMessage For="() => _model.FullName" />
+                </div>
+
+                <div class="col-md-6">
+                    <label class="crm-form-label">University Email *</label>
+                    <InputText class="form-control" @bind-Value="_model.Email" placeholder="arman.seitov@student.crm.edu" />
+                    <ValidationMessage For="() => _model.Email" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="crm-form-label">Student ID (Blank = Auto-Generate)</label>
+                    <InputText class="form-control" @bind-Value="_model.StudentNumber" placeholder="STU-2026-0006" />
+                    <ValidationMessage For="() => _model.StudentNumber" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="crm-form-label">Phone Number</label>
+                    <InputText class="form-control" @bind-Value="_model.PhoneNumber" placeholder="+7 (701) 555-0000" />
+                    <ValidationMessage For="() => _model.PhoneNumber" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="crm-form-label">Date of Birth</label>
+                    <InputDate class="form-control" @bind-Value="_model.DateOfBirth" />
+                    <ValidationMessage For="() => _model.DateOfBirth" />
+                </div>
+
+                <div class="col-md-6">
+                    <label class="crm-form-label">University *</label>
+                    <InputText class="form-control" @bind-Value="_model.University" />
+                    <ValidationMessage For="() => _model.University" />
+                </div>
+
+                <div class="col-md-6">
+                    <label class="crm-form-label">Faculty / School *</label>
+                    <InputText class="form-control" @bind-Value="_model.Faculty" />
+                    <ValidationMessage For="() => _model.Faculty" />
+                </div>
+
+                <div class="col-md-6">
+                    <label class="crm-form-label">Department *</label>
+                    <InputText class="form-control" @bind-Value="_model.Department" />
+                    <ValidationMessage For="() => _model.Department" />
+                </div>
+
+                <div class="col-md-6">
+                    <label class="crm-form-label">Study Program *</label>
+                    <InputText class="form-control" @bind-Value="_model.StudyProgram" />
+                    <ValidationMessage For="() => _model.StudyProgram" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="crm-form-label">Study Year (1 - 6) *</label>
+                    <InputNumber class="form-control" @bind-Value="_model.StudyYear" min="1" max="6" />
+                    <ValidationMessage For="() => _model.StudyYear" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="crm-form-label">Enrollment Date</label>
+                    <InputDate class="form-control" @bind-Value="_model.EnrollmentDate" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="crm-form-label">Initial Status</label>
+                    <InputSelect class="form-select" @bind-Value="_model.Status">
+                        @foreach (var st in Enum.GetValues<StudentStatus>())
+                        {
+                            <option value="@st">@st</option>
+                        }
+                    </InputSelect>
+                </div>
+
+                <div class="col-12">
+                    <label class="crm-form-label">Profile Bio &amp; Academic Notes</label>
+                    <InputTextArea class="form-control" rows="3" @bind-Value="_model.Bio" />
+                    <ValidationMessage For="() => _model.Bio" />
+                </div>
+
+                <div class="col-12 pt-2 border-top">
+                    <div class="form-check mb-2">
+                        <InputCheckbox id="create-login-chk" class="form-check-input" @bind-Value="_model.CreateLoginAccount" />
+                        <label class="form-check-label fw-semibold small" for="create-login-chk">
+                            Provision student portal login account with initial password
+                        </label>
+                    </div>
+
+                    @if (_model.CreateLoginAccount)
+                    {
+                        <div class="col-md-5">
+                            <label class="crm-form-label">Initial Portal Password *</label>
+                            <InputText class="form-control" @bind-Value="_model.InitialPassword" />
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
+                <a href="students" class="btn btn-outline-secondary">Cancel</a>
+                <button type="submit" class="btn btn-primary px-4" disabled="@_isSubmitting">
+                    @(_isSubmitting ? "Creating Student..." : "Create Student Record")
+                </button>
+            </div>
+        </EditForm>
+    </div>
+}
+
+@code {
+    private CreateStudentRequestDto _model = new()
+    {
+        EnrollmentDate = DateOnly.FromDateTime(DateTime.UtcNow)
+    };
+    private IReadOnlyList<string> _errors = [];
+    private bool _isSubmitting;
+
+    private async Task HandleCreateAsync()
+    {
+        _isSubmitting = true;
+        _errors = [];
+
+        try
+        {
+            var access = AuthStateProvider.GetAccessContext();
+            var result = await StudentService.CreateStudentAsync(_model, access);
+            if (!result.Succeeded || result.Data is null)
+            {
+                _errors = result.Errors.Count > 0 ? result.Errors : [result.Message ?? "Failed to create student."];
+                return;
+            }
+
+            Navigation.NavigateTo($"students/{result.Data.Id}");
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+}

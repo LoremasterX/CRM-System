@@ -1,0 +1,143 @@
+@page "/register"
+@inject IAuthService AuthService
+@inject CrmAuthStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>Student Registration — Student CRM</PageTitle>
+
+<div class="row justify-content-center py-2">
+    <div class="col-lg-8">
+        <div class="crm-card p-4 p-md-5">
+            <div class="mb-4">
+                <h1 class="h4 fw-bold mb-1">Create Your Student CRM Account</h1>
+                <p class="text-muted small mb-0">
+                    Register your personal and academic profile to manage courses, grades, schedules, and tasks.
+                </p>
+            </div>
+
+            @if (_errors.Count > 0)
+            {
+                <div class="alert alert-danger py-2 px-3 small">
+                    @foreach (var err in _errors)
+                    {
+                        <div>• @err</div>
+                    }
+                </div>
+            }
+
+            <EditForm Model="_model" OnValidSubmit="HandleRegisterAsync" FormName="RegisterStudentForm">
+                <DataAnnotationsValidator />
+
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="crm-form-label">Full Name *</label>
+                        <InputText class="form-control" @bind-Value="_model.FullName" placeholder="e.g., Sanzhar Ospanov" />
+                        <ValidationMessage For="() => _model.FullName" />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="crm-form-label">University Email *</label>
+                        <InputText class="form-control" @bind-Value="_model.Email" placeholder="sanzhar.ospanov@student.crm.edu" />
+                        <ValidationMessage For="() => _model.Email" />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="crm-form-label">Password * (min 6 chars, letter + digit)</label>
+                        <InputText type="password" class="form-control" @bind-Value="_model.Password" placeholder="Create a strong password" />
+                        <ValidationMessage For="() => _model.Password" />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="crm-form-label">Confirm Password *</label>
+                        <InputText type="password" class="form-control" @bind-Value="_model.ConfirmPassword" placeholder="Repeat password" />
+                        <ValidationMessage For="() => _model.ConfirmPassword" />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="crm-form-label">Student ID (Optional — auto-generated if blank)</label>
+                        <InputText class="form-control" @bind-Value="_model.StudentNumber" placeholder="e.g., STU-2026-0099" />
+                        <ValidationMessage For="() => _model.StudentNumber" />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="crm-form-label">Phone Number</label>
+                        <InputText class="form-control" @bind-Value="_model.PhoneNumber" placeholder="+7 (701) 000-0000" />
+                        <ValidationMessage For="() => _model.PhoneNumber" />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="crm-form-label">University *</label>
+                        <InputText class="form-control" @bind-Value="_model.University" />
+                        <ValidationMessage For="() => _model.University" />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="crm-form-label">Faculty / School *</label>
+                        <InputText class="form-control" @bind-Value="_model.Faculty" />
+                        <ValidationMessage For="() => _model.Faculty" />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="crm-form-label">Department *</label>
+                        <InputText class="form-control" @bind-Value="_model.Department" />
+                        <ValidationMessage For="() => _model.Department" />
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="crm-form-label">Study Program *</label>
+                        <InputText class="form-control" @bind-Value="_model.StudyProgram" />
+                        <ValidationMessage For="() => _model.StudyProgram" />
+                    </div>
+
+                    <div class="col-md-2">
+                        <label class="crm-form-label">Study Year *</label>
+                        <InputNumber class="form-control" @bind-Value="_model.StudyYear" min="1" max="6" />
+                        <ValidationMessage For="() => _model.StudyYear" />
+                    </div>
+
+                    <div class="col-12">
+                        <label class="crm-form-label">Profile Information / Academic Bio</label>
+                        <InputTextArea class="form-control" rows="3" @bind-Value="_model.Bio" placeholder="Academic interests, specialization, clubs, or research focus..." />
+                        <ValidationMessage For="() => _model.Bio" />
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center mt-4 pt-3 border-top">
+                    <a href="login" class="small text-muted">Already registered? Sign In</a>
+                    <button type="submit" class="btn btn-primary px-4" disabled="@_isSubmitting">
+                        @(_isSubmitting ? "Creating Account..." : "Complete Registration")
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+</div>
+
+@code {
+    private RegisterStudentRequestDto _model = new();
+    private IReadOnlyList<string> _errors = [];
+    private bool _isSubmitting;
+
+    private async Task HandleRegisterAsync()
+    {
+        _isSubmitting = true;
+        _errors = [];
+
+        try
+        {
+            var result = await AuthService.RegisterStudentAsync(_model);
+            if (!result.Succeeded || result.Data is null)
+            {
+                _errors = result.Errors.Count > 0 ? result.Errors : [result.Message ?? "Registration failed."];
+                return;
+            }
+
+            await AuthStateProvider.SignInAsync(result.Data);
+            Navigation.NavigateTo("profile");
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+}

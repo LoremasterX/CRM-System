@@ -1,0 +1,134 @@
+@page "/settings"
+@inject CrmAuthStateProvider AuthStateProvider
+@inject IAuthService AuthService
+
+<PageTitle>Account Settings — Student CRM</PageTitle>
+
+@if (AuthStateProvider.CurrentUser is not { } user)
+{
+    <EmptyStateCard Icon="🔒" Title="Sign In Required" Description="Please sign in to manage your account security and password settings.">
+        <a href="login" class="btn btn-primary">Sign In</a>
+    </EmptyStateCard>
+}
+else
+{
+    <div class="crm-page-header">
+        <div>
+            <h1 class="crm-page-title">Account &amp; Security Settings</h1>
+            <p class="crm-page-subtitle">Manage your password and authentication preferences</p>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-5">
+            <div class="crm-card p-4 h-100">
+                <h5 class="fw-bold mb-3">Active Session Identity</h5>
+                <div class="mb-2 d-flex justify-content-between small">
+                    <span class="text-muted">Full Name:</span>
+                    <span class="fw-semibold">@user.FullName</span>
+                </div>
+                <div class="mb-2 d-flex justify-content-between small">
+                    <span class="text-muted">Email:</span>
+                    <span class="fw-semibold">@user.Email</span>
+                </div>
+                <div class="mb-2 d-flex justify-content-between small">
+                    <span class="text-muted">Access Role:</span>
+                    <span class="crm-badge crm-badge-primary">@user.Role</span>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(user.StudentNumber))
+                {
+                    <div class="mb-2 d-flex justify-content-between small">
+                        <span class="text-muted">Student Number:</span>
+                        <span class="fw-semibold font-monospace">@user.StudentNumber</span>
+                    </div>
+                }
+                <div class="pt-3 mt-3 border-top small text-muted">
+                    Passwords are hashed using ASP.NET Core Identity PBKDF2-HMAC-SHA256 and never stored in plaintext.
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-7">
+            <div class="crm-card p-4 h-100">
+                <h5 class="fw-bold mb-3">Change Account Password</h5>
+
+                @if (!string.IsNullOrWhiteSpace(_successMessage))
+                {
+                    <div class="alert alert-success py-2 px-3 small">@_successMessage</div>
+                }
+
+                @if (_errors.Count > 0)
+                {
+                    <div class="alert alert-danger py-2 px-3 small">
+                        @foreach (var err in _errors)
+                        {
+                            <div>• @err</div>
+                        }
+                    </div>
+                }
+
+                <EditForm Model="_model" OnValidSubmit="HandleChangePasswordAsync" FormName="ChangePasswordForm">
+                    <DataAnnotationsValidator />
+
+                    <div class="mb-3">
+                        <label class="crm-form-label">Current Password *</label>
+                        <InputText type="password" class="form-control" @bind-Value="_model.CurrentPassword" />
+                        <ValidationMessage For="() => _model.CurrentPassword" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="crm-form-label">New Password * (min 6 chars, letter + digit)</label>
+                        <InputText type="password" class="form-control" @bind-Value="_model.NewPassword" />
+                        <ValidationMessage For="() => _model.NewPassword" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="crm-form-label">Confirm New Password *</label>
+                        <InputText type="password" class="form-control" @bind-Value="_model.ConfirmNewPassword" />
+                        <ValidationMessage For="() => _model.ConfirmNewPassword" />
+                    </div>
+
+                    <button type="submit" class="btn btn-primary" disabled="@_isSubmitting">
+                        @(_isSubmitting ? "Updating Password..." : "Update Password")
+                    </button>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private ChangePasswordRequestDto _model = new();
+    private IReadOnlyList<string> _errors = [];
+    private string? _successMessage;
+    private bool _isSubmitting;
+
+    private async Task HandleChangePasswordAsync()
+    {
+        if (AuthStateProvider.CurrentUser is not { } user)
+        {
+            return;
+        }
+
+        _isSubmitting = true;
+        _errors = [];
+        _successMessage = null;
+
+        try
+        {
+            var result = await AuthService.ChangePasswordAsync(user.UserId, _model);
+            if (!result.Succeeded)
+            {
+                _errors = result.Errors.Count > 0 ? result.Errors : [result.Message ?? "Password update failed."];
+                return;
+            }
+
+            _model = new ChangePasswordRequestDto();
+            _successMessage = result.Message ?? "Password updated successfully.";
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+}

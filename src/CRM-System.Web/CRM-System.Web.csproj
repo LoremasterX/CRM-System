@@ -9,4 +9,9 @@
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\CRM-System.Core\CRM-System.Core.csproj" />
+    <ProjectReference Include="..\CRM-System.Infrastructure\CRM-System.Infrastructure.csproj" />
+  </ItemGroup>
+
 </Project>

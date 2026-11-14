@@ -1,7 +1,230 @@
-﻿@page "/"
+@page "/"
+@implements IDisposable
+@inject CrmAuthStateProvider AuthStateProvider
+@inject IAuthService AuthService
+@inject IStudentService StudentService
+@inject NavigationManager Navigation
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Dashboard — Student CRM</PageTitle>
 
-<h1>Hello, world!</h1>
+@if (AuthStateProvider.CurrentUser is null)
+{
+    <div class="crm-card p-4 p-md-5 mb-4" style="background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%); color: #fff;">
+        <div class="row align-items-center g-4">
+            <div class="col-lg-8">
+                <span class="badge bg-primary mb-2 px-3 py-2">University Student CRM Platform</span>
+                <h1 class="fw-bold display-6 mb-3">Centralized Academic &amp; Student Lifecycle Management</h1>
+                <p class="text-white-50 fs-6 mb-4">
+                    Manage personal academic profiles, university enrollment, courses, grades, schedules, attendance, tasks, and real-time notifications in one unified platform.
+                </p>
+                <div class="d-flex flex-wrap gap-2">
+                    <a href="login" class="btn btn-primary px-4">Sign In to Portal</a>
+                    <a href="register" class="btn btn-outline-light px-4">Register as Student</a>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="p-4 rounded-3" style="background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15);">
+                    <h6 class="fw-bold text-white mb-2">Quick Demo Access</h6>
+                    <p class="small text-white-50 mb-3">Test role-based permissions immediately with pre-seeded university accounts:</p>
+                    <div class="d-grid gap-2">
+                        <button type="button" class="btn btn-light btn-sm fw-semibold" @onclick='() => QuickSignInAsync("admin@crm.edu", "Admin123!")'>
+                            🔑 Sign In as Administrator
+                        </button>
+                        <button type="button" class="btn btn-outline-light btn-sm fw-semibold" @onclick='() => QuickSignInAsync("aidar.nurlanov@student.crm.edu", "Student123!")'>
+                            🎓 Sign In as Student (Aidar Nurlanov)
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
-Welcome to your new app.
+    <div class="row g-3">
+        <div class="col-md-4">
+            <div class="crm-card p-4 h-100">
+                <div class="fs-3 mb-2">👤</div>
+                <h5 class="fw-bold">Student Management</h5>
+                <p class="text-muted small mb-0">
+                    Role-based authentication, self-service academic profiles, and comprehensive student directory CRUD with ownership verification.
+                </p>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="crm-card p-4 h-100">
+                <div class="fs-3 mb-2">📚</div>
+                <h5 class="fw-bold">Academic Tracking</h5>
+                <p class="text-muted small mb-0">
+                    Course catalog, teacher assignments, student enrollments, configurable GPA calculation, weekly schedules, and attendance tracking.
+                </p>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="crm-card p-4 h-100">
+                <div class="fs-3 mb-2">📝</div>
+                <h5 class="fw-bold">Tasks &amp; Analytics</h5>
+                <p class="text-muted small mb-0">
+                    Course-linked assignments, deadline alerts, academic calendar, persisted notifications, and real-time performance analytics.
+                </p>
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    var user = AuthStateProvider.CurrentUser;
+    <div class="crm-page-header">
+        <div>
+            <h1 class="crm-page-title">Welcome back, @user.FullName</h1>
+            <p class="crm-page-subtitle">
+                Signed in as <strong>@user.Role</strong>
+                @if (!string.IsNullOrWhiteSpace(user.StudentNumber))
+                {
+                    <span> • Student ID: <strong>@user.StudentNumber</strong></span>
+                }
+            </p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="profile" class="btn btn-outline-primary">My Profile</a>
+            @if (string.Equals(user.Role, UserRoles.Admin, StringComparison.OrdinalIgnoreCase))
+            {
+                <a href="students" class="btn btn-primary">Manage Students</a>
+            }
+        </div>
+    </div>
+
+    @if (_stats is not null)
+    {
+        <div class="row g-3 mb-4">
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Total Students" Value="@_stats.TotalStudents.ToString()" Subtitle="Registered in university CRM" Icon="🎓" Variant="primary" />
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Active Students" Value="@_stats.ActiveStudents.ToString()" Subtitle="Currently enrolled & active" Icon="✅" Variant="success" />
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Faculties" Value="@_stats.FacultiesCount.ToString()" Subtitle="Academic schools represented" Icon="🏛️" Variant="info" />
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Departments" Value="@_stats.DepartmentsCount.ToString()" Subtitle="Specialized academic departments" Icon="🔬" Variant="warning" />
+            </div>
+        </div>
+    }
+
+    @if (_myProfile is not null)
+    {
+        <div class="crm-card p-4 mb-4">
+            <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="crm-avatar crm-avatar-lg">@_myProfile.Initials</div>
+                    <div>
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <h4 class="fw-bold mb-0">@_myProfile.FullName</h4>
+                            <StatusBadge Status="_myProfile.Status" />
+                        </div>
+                        <div class="text-muted small mt-1">
+                            @_myProfile.StudentNumber • @_myProfile.Email
+                        </div>
+                    </div>
+                </div>
+                <a href="profile" class="btn btn-sm btn-outline-primary">Edit Personal Profile</a>
+            </div>
+
+            <div class="row g-3 pt-2 border-top">
+                <div class="col-md-3">
+                    <div class="text-muted small">University</div>
+                    <div class="fw-semibold">@_myProfile.University</div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted small">Faculty</div>
+                    <div class="fw-semibold">@_myProfile.Faculty</div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted small">Department</div>
+                    <div class="fw-semibold">@_myProfile.Department</div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted small">Program &amp; Year</div>
+                    <div class="fw-semibold">@_myProfile.StudyProgram (Year @_myProfile.StudyYear)</div>
+                </div>
+            </div>
+        </div>
+    }
+    else if (string.Equals(user.Role, UserRoles.Admin, StringComparison.OrdinalIgnoreCase))
+    {
+        <div class="crm-card p-4">
+            <h5 class="fw-bold mb-2">Administrator Quick Actions</h5>
+            <p class="text-muted small mb-3">
+                Manage university student records, search across faculties and study programs, or create new student accounts.
+            </p>
+            <div class="d-flex flex-wrap gap-2">
+                <a href="students" class="btn btn-primary">Open Student Directory</a>
+                <a href="students/create" class="btn btn-outline-primary">+ Create New Student</a>
+                <a href="settings" class="btn btn-outline-secondary">Account Security Settings</a>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private StudentDirectoryStatsDto? _stats;
+    private StudentDto? _myProfile;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthStateProvider.AuthenticationStateChanged += OnAuthStateChanged;
+        await LoadDashboardDataAsync();
+    }
+
+    private async Task LoadDashboardDataAsync()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        if (!access.IsAuthenticated)
+        {
+            _stats = null;
+            _myProfile = null;
+            return;
+        }
+
+        var statsResult = await StudentService.GetDirectoryStatsAsync(access);
+        if (statsResult.Succeeded)
+        {
+            _stats = statsResult.Data;
+        }
+
+        if (access.UserId.HasValue)
+        {
+            var profileResult = await StudentService.GetStudentByUserIdAsync(access.UserId.Value, access);
+            _myProfile = profileResult.Succeeded ? profileResult.Data : null;
+        }
+    }
+
+    private async Task QuickSignInAsync(string email, string password)
+    {
+        var result = await AuthService.LoginAsync(new LoginRequestDto
+        {
+            Email = email,
+            Password = password,
+            RememberMe = true
+        });
+
+        if (result.Succeeded && result.Data is not null)
+        {
+            await AuthStateProvider.SignInAsync(result.Data);
+            await LoadDashboardDataAsync();
+        }
+    }
+
+    private void OnAuthStateChanged(Task<AuthenticationState> task)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await LoadDashboardDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        AuthStateProvider.AuthenticationStateChanged -= OnAuthStateChanged;
+    }
+}
