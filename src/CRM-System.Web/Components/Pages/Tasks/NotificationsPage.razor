@@ -1,0 +1,420 @@
+@page "/notifications"
+@implements IDisposable
+@inject CrmAuthStateProvider AuthStateProvider
+@inject ITaskNotificationService TaskService
+@inject IStudentService StudentService
+
+<PageTitle>Notifications Center — Student CRM</PageTitle>
+
+@{
+    var access = AuthStateProvider.GetAccessContext();
+}
+
+@if (!access.IsAuthenticated)
+{
+    <EmptyStateCard Icon="🔒" Title="Authentication Required" Description="Please sign in to view your deadline reminders and academic notifications.">
+        <a href="login" class="btn btn-primary">Go to Sign In</a>
+    </EmptyStateCard>
+}
+else
+{
+    <div class="crm-page-header">
+        <div>
+            <h1 class="crm-page-title">Notifications &amp; Deadline Alerts</h1>
+            <p class="crm-page-subtitle">
+                @(IsAdmin
+                    ? "Monitor student deadline alerts, trigger automated overdue/reminder scans, and dispatch academic announcements."
+                    : "Stay updated on upcoming assignment deadlines, overdue task alerts, and academic announcements.")
+            </p>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <button type="button" class="btn btn-outline-primary" @onclick="SynchronizeDeadlineAlertsAsync">
+                🔄 Scan Deadlines
+            </button>
+            <button type="button"
+                    class="btn btn-outline-success"
+                    disabled="@(_notifications.All(n => n.IsRead))"
+                    @onclick="MarkAllAsReadAsync">
+                ✓ Mark All Read
+            </button>
+            @if (IsAdmin)
+            {
+                <button type="button" class="btn btn-primary" @onclick="OpenCreateNotificationForm">
+                    + Send Notification
+                </button>
+            }
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_alertMessage))
+    {
+        <div class="alert alert-@_alertVariant py-2 px-3 small d-flex justify-content-between align-items-center mb-3">
+            <span>@_alertMessage</span>
+            <button type="button" class="btn-close btn-sm" @onclick="ClearAlert"></button>
+        </div>
+    }
+
+    <div class="row g-3 mb-4">
+        <div class="col-sm-6 col-xl-3">
+            <StatCard Title="Total Notifications"
+                      Value="@_notifications.Count.ToString()"
+                      Subtitle="Persisted in notification inbox"
+                      Icon="🔔"
+                      Variant="primary" />
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <StatCard Title="Unread Alerts"
+                      Value="@_notifications.Count(n => !n.IsRead).ToString()"
+                      Subtitle="Awaiting review"
+                      Icon="📬"
+                      Variant="warning" />
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <StatCard Title="Deadline &amp; Overdue"
+                      Value="@_notifications.Count(n => n.Type == NotificationType.DeadlineReminder || n.Type == NotificationType.OverdueAlert).ToString()"
+                      Subtitle="Automated task alerts"
+                      Icon="⏰"
+                      Variant="danger" />
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <StatCard Title="Read History"
+                      Value="@_notifications.Count(n => n.IsRead).ToString()"
+                      Subtitle="Acknowledged notifications"
+                      Icon="✅"
+                      Variant="success" />
+        </div>
+    </div>
+
+    @if (IsAdmin && _showCreateForm)
+    {
+        <div class="crm-card p-4 mb-4 border-primary">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="fw-bold mb-0">Dispatch Academic Notification</h5>
+                <button type="button" class="btn-close" @onclick="() => _showCreateForm = false"></button>
+            </div>
+
+            <EditForm Model="_createForm" OnValidSubmit="SendNotificationAsync">
+                <DataAnnotationsValidator />
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Recipient Student</label>
+                        <InputSelect class="form-select" @bind-Value="_createForm.StudentId">
+                            <option value="">-- Select Student --</option>
+                            @foreach (var s in _students)
+                            {
+                                <option value="@s.Id">@s.FullName (@s.StudentNumber)</option>
+                            }
+                        </InputSelect>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Notification Category</label>
+                        <InputSelect class="form-select" @bind-Value="_createForm.Type">
+                            @foreach (var t in Enum.GetValues<NotificationType>())
+                            {
+                                <option value="@t">@t</option>
+                            }
+                        </InputSelect>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Title</label>
+                        <InputText class="form-control" @bind-Value="_createForm.Title" placeholder="e.g., Fall 2026 Final Exam Schedule Published" />
+                        <ValidationMessage For="() => _createForm.Title" />
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Message</label>
+                        <InputTextArea class="form-control" rows="3" @bind-Value="_createForm.Message" placeholder="Enter detailed notification message..." />
+                        <ValidationMessage For="() => _createForm.Message" />
+                    </div>
+                </div>
+                <div class="d-flex justify-content-end gap-2 mt-4">
+                    <button type="button" class="btn btn-outline-secondary" @onclick="() => _showCreateForm = false">Cancel</button>
+                    <button type="submit" class="btn btn-primary" disabled="@_isBusy">Send Notification</button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    <div class="crm-card p-3 mb-4">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div class="btn-group btn-group-sm">
+                <button type="button"
+                        class="btn @(!_unreadOnly ? "btn-primary" : "btn-outline-primary")"
+                        @onclick="() => SetUnreadFilterAsync(false)">
+                    All Notifications
+                </button>
+                <button type="button"
+                        class="btn @(_unreadOnly ? "btn-primary" : "btn-outline-primary")"
+                        @onclick="() => SetUnreadFilterAsync(true)">
+                    Unread Only
+                </button>
+            </div>
+
+            @if (IsAdmin && _students.Count > 0)
+            {
+                <div class="d-flex align-items-center gap-2">
+                    <span class="small fw-semibold text-muted">Student:</span>
+                    <select class="form-select form-select-sm" style="min-width: 240px;" value="@_filterStudentId" @onchange="OnFilterStudentChangedAsync">
+                        <option value="0">All Students</option>
+                        @foreach (var s in _students)
+                        {
+                            <option value="@s.Id">@s.FullName (@s.StudentNumber)</option>
+                        }
+                    </select>
+                </div>
+            }
+        </div>
+    </div>
+
+    @if (_notifications.Count == 0)
+    {
+        <EmptyStateCard Icon="📭"
+                        Title="No notifications to display"
+                        Description="Your notification inbox is clear for the selected filter." />
+    }
+    else
+    {
+        <div class="d-flex flex-column gap-3">
+            @foreach (var item in _notifications)
+            {
+                <div class="crm-card p-3 @(!item.IsRead ? "border-start border-4 border-primary" : "opacity-75")">
+                    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+                        <div class="d-flex align-items-center flex-wrap gap-2">
+                            <span class="badge @GetNotificationBadgeClass(item.Type)">@FormatType(item.Type)</span>
+                            @if (!item.IsRead)
+                            {
+                                <span class="badge bg-primary">NEW</span>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(item.RelatedCourseCode))
+                            {
+                                <span class="badge bg-light text-primary border fw-bold">@item.RelatedCourseCode</span>
+                            }
+                            @if (IsAdmin && !string.IsNullOrWhiteSpace(item.StudentName))
+                            {
+                                <span class="badge bg-light text-dark border">🎓 @item.StudentName</span>
+                            }
+                        </div>
+                        <div class="text-muted small">
+                            @item.CreatedAt.ToString("yyyy-MM-dd HH:mm")
+                        </div>
+                    </div>
+
+                    <h6 class="fw-bold mb-1">@item.Title</h6>
+                    <p class="text-muted small mb-2">@item.Message</p>
+
+                    <div class="d-flex justify-content-between align-items-center pt-2 border-top">
+                        <div class="small text-muted">
+                            @if (item.IsRead && item.ReadAt.HasValue)
+                            {
+                                <span>Read on @item.ReadAt.Value.ToString("yyyy-MM-dd HH:mm")</span>
+                            }
+                            else
+                            {
+                                <span class="text-primary fw-semibold">Unread</span>
+                            }
+                        </div>
+                        <div class="btn-group btn-group-sm">
+                            <button type="button"
+                                    class="btn btn-outline-secondary"
+                                    @onclick="() => ToggleReadStateAsync(item)">
+                                @(item.IsRead ? "Mark Unread" : "Mark as Read")
+                            </button>
+                            <button type="button"
+                                    class="btn btn-outline-danger"
+                                    @onclick="() => DeleteNotificationAsync(item.Id)">
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    private List<NotificationDto> _notifications = [];
+    private List<StudentDto> _students = [];
+    private bool _unreadOnly;
+    private int _filterStudentId;
+
+    private bool _showCreateForm;
+    private CreateNotificationRequestDto _createForm = new();
+
+    private bool _isBusy;
+    private string? _alertMessage;
+    private string _alertVariant = "info";
+
+    private bool IsAdmin => AuthStateProvider.GetAccessContext().IsAdmin;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthStateProvider.AuthenticationStateChanged += OnAuthStateChanged;
+        await LoadPageDataAsync();
+    }
+
+    private async Task LoadPageDataAsync()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        if (!access.IsAuthenticated)
+        {
+            return;
+        }
+
+        if (access.IsAdmin)
+        {
+            var studentsRes = await StudentService.GetStudentsAsync(null, access);
+            if (studentsRes.Succeeded && studentsRes.Data is not null)
+            {
+                _students = studentsRes.Data.ToList();
+            }
+        }
+
+        await ReloadNotificationsAsync();
+    }
+
+    private async Task ReloadNotificationsAsync()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        int? targetStudentId = IsAdmin ? (_filterStudentId > 0 ? _filterStudentId : null) : access.StudentId;
+
+        var res = await TaskService.GetNotificationsAsync(targetStudentId, _unreadOnly, access);
+        if (res.Succeeded && res.Data is not null)
+        {
+            _notifications = res.Data.ToList();
+        }
+    }
+
+    private async Task SetUnreadFilterAsync(bool unreadOnly)
+    {
+        _unreadOnly = unreadOnly;
+        await ReloadNotificationsAsync();
+    }
+
+    private async Task OnFilterStudentChangedAsync(ChangeEventArgs e)
+    {
+        _filterStudentId = int.TryParse(e.Value?.ToString(), out var id) ? id : 0;
+        await ReloadNotificationsAsync();
+    }
+
+    private async Task SynchronizeDeadlineAlertsAsync()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        int? targetStudentId = IsAdmin ? (_filterStudentId > 0 ? _filterStudentId : null) : access.StudentId;
+
+        var res = await TaskService.SynchronizeDeadlineNotificationsAsync(targetStudentId, access);
+        if (res.Succeeded)
+        {
+            SetAlert(res.Message ?? "Deadline notifications synchronized.", "info");
+            await ReloadNotificationsAsync();
+        }
+        else
+        {
+            SetAlert(res.Message ?? "Failed to synchronize notifications.", "danger");
+        }
+    }
+
+    private async Task MarkAllAsReadAsync()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        int? targetStudentId = IsAdmin ? (_filterStudentId > 0 ? _filterStudentId : null) : access.StudentId;
+
+        var res = await TaskService.MarkAllNotificationsAsReadAsync(targetStudentId, access);
+        if (res.Succeeded)
+        {
+            SetAlert(res.Message ?? "All notifications marked as read.", "success");
+            await ReloadNotificationsAsync();
+        }
+    }
+
+    private async Task ToggleReadStateAsync(NotificationDto item)
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        var res = await TaskService.MarkNotificationReadStateAsync(item.Id, !item.IsRead, access);
+        if (res.Succeeded)
+        {
+            await ReloadNotificationsAsync();
+        }
+    }
+
+    private async Task DeleteNotificationAsync(int id)
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        var res = await TaskService.DeleteNotificationAsync(id, access);
+        if (res.Succeeded)
+        {
+            SetAlert("Notification deleted.", "info");
+            await ReloadNotificationsAsync();
+        }
+    }
+
+    private void OpenCreateNotificationForm()
+    {
+        _createForm = new CreateNotificationRequestDto
+        {
+            StudentId = _students.FirstOrDefault()?.Id,
+            Type = NotificationType.SystemAnnouncement,
+            Title = string.Empty,
+            Message = string.Empty
+        };
+        _showCreateForm = true;
+    }
+
+    private async Task SendNotificationAsync()
+    {
+        _isBusy = true;
+        var access = AuthStateProvider.GetAccessContext();
+        var res = await TaskService.CreateNotificationAsync(_createForm, access);
+        _isBusy = false;
+
+        if (res.Succeeded)
+        {
+            _showCreateForm = false;
+            SetAlert("Notification dispatched successfully.", "success");
+            await ReloadNotificationsAsync();
+        }
+        else
+        {
+            SetAlert(res.Message ?? "Failed to send notification.", "danger");
+        }
+    }
+
+    private static string FormatType(NotificationType type) => type switch
+    {
+        NotificationType.DeadlineReminder => "⏰ Deadline Reminder",
+        NotificationType.OverdueAlert => "⚠️ Overdue Alert",
+        NotificationType.TaskAssigned => "📋 Task Assigned",
+        NotificationType.GradePosted => "🏆 Grade Posted",
+        _ => "📢 Announcement"
+    };
+
+    private static string GetNotificationBadgeClass(NotificationType type) => type switch
+    {
+        NotificationType.OverdueAlert => "bg-danger",
+        NotificationType.DeadlineReminder => "bg-warning text-dark",
+        NotificationType.TaskAssigned => "bg-primary",
+        NotificationType.GradePosted => "bg-success",
+        _ => "bg-info text-dark"
+    };
+
+    private void SetAlert(string message, string variant)
+    {
+        _alertMessage = message;
+        _alertVariant = variant;
+    }
+
+    private void ClearAlert() => _alertMessage = null;
+
+    private void OnAuthStateChanged(Task<AuthenticationState> task)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await LoadPageDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        AuthStateProvider.AuthenticationStateChanged -= OnAuthStateChanged;
+    }
+}

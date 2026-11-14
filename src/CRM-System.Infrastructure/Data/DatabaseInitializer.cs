@@ -1,6 +1,7 @@
 using CRM_System.Core.Academic.Models;
 using CRM_System.Core.Students.Interfaces;
 using CRM_System.Core.Students.Models;
+using CRM_System.Core.Tasks.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -32,6 +33,7 @@ public static class DatabaseInitializer
         {
             await SeedInitialUsersAndStudentsAsync(dbContext, passwordHasher, logger, cancellationToken);
             await SeedAcademicDataAsync(dbContext, logger, cancellationToken);
+            await SeedTasksAndNotificationsAsync(dbContext, logger, cancellationToken);
         }
     }
 
@@ -446,5 +448,228 @@ public static class DatabaseInitializer
         await dbContext.SaveChangesAsync(cancellationToken);
 
         logger?.LogInformation("Seeded Stage 2 Academic Management data (Teachers, Courses, Enrollments, Grades, Schedule, Attendance).");
+    }
+
+    public static async Task SeedTasksAndNotificationsAsync(
+        CrmDbContext dbContext,
+        ILogger? logger = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (await dbContext.StudentTasks.AnyAsync(cancellationToken))
+        {
+            return;
+        }
+
+        var students = await dbContext.Students
+            .OrderBy(s => s.Id)
+            .ToListAsync(cancellationToken);
+
+        if (students.Count == 0)
+        {
+            return;
+        }
+
+        var courses = await dbContext.Courses
+            .OrderBy(c => c.Id)
+            .ToListAsync(cancellationToken);
+
+        var now = DateTime.UtcNow;
+        var aidar = students[0];
+        var alina = students.Count > 1 ? students[1] : students[0];
+        var timur = students.Count > 2 ? students[2] : students[0];
+
+        int? cs301Id = courses.FirstOrDefault(c => c.CourseCode == "CS-301")?.Id ?? courses.ElementAtOrDefault(0)?.Id;
+        int? cs204Id = courses.FirstOrDefault(c => c.CourseCode == "CS-204")?.Id ?? courses.ElementAtOrDefault(1)?.Id;
+        int? ai210Id = courses.FirstOrDefault(c => c.CourseCode == "AI-210")?.Id ?? courses.ElementAtOrDefault(2)?.Id;
+        int? sec305Id = courses.FirstOrDefault(c => c.CourseCode == "SEC-305")?.Id ?? courses.ElementAtOrDefault(3)?.Id;
+        int? se312Id = courses.FirstOrDefault(c => c.CourseCode == "SE-312")?.Id ?? courses.ElementAtOrDefault(4)?.Id;
+
+        var tasks = new List<StudentTask>
+        {
+            new()
+            {
+                StudentId = aidar.Id,
+                CourseId = cs301Id,
+                Title = "Implement Stage 3 Tasks & Notifications Blazor Module",
+                Description = "Complete task CRUD, deadline filtering/sorting, interactive calendar, and persisted notification alerts.",
+                DueDate = now.AddHours(36),
+                Priority = TaskPriority.High,
+                Status = StudentTaskStatus.InProgress,
+                CreatedAt = now.AddDays(-3),
+                UpdatedAt = now.AddHours(-4)
+            },
+            new()
+            {
+                StudentId = aidar.Id,
+                CourseId = cs204Id,
+                Title = "Normalize SQLite Composite Indexes & Migration Script",
+                Description = "Write and benchmark EF Core migration 20261114030000_AddTasksAndNotifications for StudentTasks and Notifications.",
+                DueDate = now.AddDays(5),
+                Priority = TaskPriority.Medium,
+                Status = StudentTaskStatus.Pending,
+                CreatedAt = now.AddDays(-2),
+                UpdatedAt = now.AddDays(-2)
+            },
+            new()
+            {
+                StudentId = aidar.Id,
+                CourseId = sec305Id,
+                Title = "Submit RBAC Security Audit Report",
+                Description = "Document cross-student ownership checks and password hashing parameters for university security review.",
+                DueDate = now.AddDays(-2),
+                Priority = TaskPriority.High,
+                Status = StudentTaskStatus.Overdue,
+                CreatedAt = now.AddDays(-8),
+                UpdatedAt = now.AddDays(-1)
+            },
+            new()
+            {
+                StudentId = aidar.Id,
+                CourseId = se312Id,
+                Title = "Write xUnit Test Suite for GPA & Attendance Services",
+                Description = "Verify 100% pass rate on positive and negative unit/integration test cases.",
+                DueDate = now.AddDays(-4),
+                Priority = TaskPriority.Medium,
+                Status = StudentTaskStatus.Completed,
+                CreatedAt = now.AddDays(-10),
+                UpdatedAt = now.AddDays(-5),
+                CompletedAt = now.AddDays(-5)
+            },
+            new()
+            {
+                StudentId = aidar.Id,
+                CourseId = null,
+                Title = "Prepare Academic Advisor Semester Check-In",
+                Description = "Review Fall 2026 transcript, credit load, and internship application timeline.",
+                DueDate = now.AddDays(9),
+                Priority = TaskPriority.Low,
+                Status = StudentTaskStatus.Pending,
+                CreatedAt = now.AddDays(-1),
+                UpdatedAt = now.AddDays(-1)
+            }
+        };
+
+        if (alina.Id != aidar.Id)
+        {
+            tasks.AddRange(
+            [
+                new()
+                {
+                    StudentId = alina.Id,
+                    CourseId = ai210Id,
+                    Title = "Train Gradient Boosting Model on Student Retention Dataset",
+                    Description = "Evaluate precision, recall, and ROC-AUC across 5-fold cross-validation.",
+                    DueDate = now.AddHours(48),
+                    Priority = TaskPriority.High,
+                    Status = StudentTaskStatus.InProgress,
+                    CreatedAt = now.AddDays(-4),
+                    UpdatedAt = now.AddDays(-1)
+                },
+                new()
+                {
+                    StudentId = alina.Id,
+                    CourseId = cs301Id,
+                    Title = "Build Analytics Charts for Stage 4 Dashboard",
+                    Description = "Prepare GPA progression and course completion visualizations.",
+                    DueDate = now.AddDays(6),
+                    Priority = TaskPriority.Medium,
+                    Status = StudentTaskStatus.Pending,
+                    CreatedAt = now.AddDays(-2),
+                    UpdatedAt = now.AddDays(-2)
+                }
+            ]);
+        }
+
+        if (timur.Id != aidar.Id && timur.Id != alina.Id)
+        {
+            tasks.Add(new StudentTask
+            {
+                StudentId = timur.Id,
+                CourseId = sec305Id,
+                Title = "Complete Network Packet Capture Lab",
+                Description = "Analyze TLS 1.3 handshake frames and submit lab report.",
+                DueDate = now.AddDays(-1),
+                Priority = TaskPriority.High,
+                Status = StudentTaskStatus.Overdue,
+                CreatedAt = now.AddDays(-6),
+                UpdatedAt = now.AddDays(-1)
+            });
+        }
+
+        dbContext.StudentTasks.AddRange(tasks);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        var notifications = new List<Notification>
+        {
+            new()
+            {
+                UserId = aidar.UserId,
+                StudentId = aidar.Id,
+                RelatedTaskId = tasks[0].Id,
+                RelatedCourseId = cs301Id,
+                Title = "Upcoming Deadline (36h left): [CS-301] Implement Stage 3 Tasks & Notifications Blazor Module",
+                Message = $"Reminder: '{tasks[0].Title}' (High priority) is due on {tasks[0].DueDate:yyyy-MM-dd HH:mm}.",
+                Type = NotificationType.DeadlineReminder,
+                IsRead = false,
+                CreatedAt = now.AddHours(-2)
+            },
+            new()
+            {
+                UserId = aidar.UserId,
+                StudentId = aidar.Id,
+                RelatedTaskId = tasks[2].Id,
+                RelatedCourseId = sec305Id,
+                Title = "Overdue Task Alert: [SEC-305] Submit RBAC Security Audit Report",
+                Message = $"Your task '{tasks[2].Title}' passed its deadline on {tasks[2].DueDate:yyyy-MM-dd HH:mm} and is now marked Overdue.",
+                Type = NotificationType.OverdueAlert,
+                IsRead = false,
+                CreatedAt = now.AddHours(-12)
+            },
+            new()
+            {
+                UserId = aidar.UserId,
+                StudentId = aidar.Id,
+                RelatedTaskId = tasks[1].Id,
+                RelatedCourseId = cs204Id,
+                Title = "New Academic Task Assigned: [CS-204] Normalize SQLite Composite Indexes & Migration Script",
+                Message = "Dr. Gulnara Tazhibayeva posted a new Medium priority assignment in CS-204.",
+                Type = NotificationType.TaskAssigned,
+                IsRead = false,
+                CreatedAt = now.AddDays(-2)
+            },
+            new()
+            {
+                UserId = aidar.UserId,
+                StudentId = aidar.Id,
+                RelatedCourseId = cs301Id,
+                Title = "Grade Posted: [CS-301] Midterm Practical Exam — 93.0% (A)",
+                Message = "Your assessment 'Midterm Practical Exam' in CS-301 has been graded: 93.0% (4.0 GPA points).",
+                Type = NotificationType.GradePosted,
+                IsRead = true,
+                CreatedAt = now.AddDays(-6),
+                ReadAt = now.AddDays(-5)
+            }
+        };
+
+        if (alina.Id != aidar.Id && tasks.Count >= 6)
+        {
+            notifications.Add(new Notification
+            {
+                UserId = alina.UserId,
+                StudentId = alina.Id,
+                RelatedTaskId = tasks[5].Id,
+                RelatedCourseId = ai210Id,
+                Title = "Upcoming Deadline (48h left): [AI-210] Train Gradient Boosting Model on Student Retention Dataset",
+                Message = $"Reminder: '{tasks[5].Title}' (High priority) is due on {tasks[5].DueDate:yyyy-MM-dd HH:mm}.",
+                Type = NotificationType.DeadlineReminder,
+                IsRead = false,
+                CreatedAt = now.AddHours(-3)
+            });
+        }
+
+        dbContext.Notifications.AddRange(notifications);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        logger?.LogInformation("Seeded Stage 3 Tasks ({TaskCount}) and Notifications ({NotificationCount}).", tasks.Count, notifications.Count);
     }
 }

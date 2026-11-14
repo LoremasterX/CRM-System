@@ -1,0 +1,555 @@
+@page "/tasks"
+@implements IDisposable
+@inject CrmAuthStateProvider AuthStateProvider
+@inject ITaskNotificationService TaskService
+@inject IAcademicService AcademicService
+@inject IStudentService StudentService
+
+<PageTitle>Tasks &amp; Deadlines — Student CRM</PageTitle>
+
+@{
+    var access = AuthStateProvider.GetAccessContext();
+}
+
+@if (!access.IsAuthenticated)
+{
+    <EmptyStateCard Icon="🔒" Title="Authentication Required" Description="Please sign in to manage your academic tasks, assignments, and deadlines.">
+        <a href="login" class="btn btn-primary">Go to Sign In</a>
+    </EmptyStateCard>
+}
+else
+{
+    <div class="crm-page-header">
+        <div>
+            <h1 class="crm-page-title">Academic Tasks &amp; Deadlines</h1>
+            <p class="crm-page-subtitle">
+                @(IsAdmin
+                    ? "Assign and manage student coursework tasks, monitor overdue deadlines, and track task completion rates."
+                    : "Organize your course assignments, personal study tasks, priorities, and upcoming deadlines.")
+            </p>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <a href="calendar" class="btn btn-outline-primary">🗓️ Calendar View</a>
+            <button type="button" class="btn btn-primary" @onclick="OpenCreateTaskForm">
+                + New Task
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_alertMessage))
+    {
+        <div class="alert alert-@_alertVariant py-2 px-3 small d-flex justify-content-between align-items-center mb-3">
+            <span>@_alertMessage</span>
+            <button type="button" class="btn-close btn-sm" @onclick="ClearAlert"></button>
+        </div>
+    }
+
+    @if (_stats is not null)
+    {
+        <div class="row g-3 mb-4">
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Total Tasks"
+                          Value="@_stats.TotalTasks.ToString()"
+                          Subtitle="@($"{_stats.HighPriorityActiveCount} High-Priority Active")"
+                          Icon="📝"
+                          Variant="primary" />
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="In Progress / Pending"
+                          Value="@($"{_stats.InProgressCount} / {_stats.PendingCount}")"
+                          Subtitle="@($"{_stats.DueSoonCount} due within 72 hours")"
+                          Icon="⏳"
+                          Variant="info" />
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Completed Tasks"
+                          Value="@_stats.CompletedCount.ToString()"
+                          Subtitle="@($"Completion Rate: {_stats.CompletionRatePercentage:F1}%")"
+                          Icon="✅"
+                          Variant="success" />
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Overdue Tasks"
+                          Value="@_stats.OverdueCount.ToString()"
+                          Subtitle="Past deadline &amp; incomplete"
+                          Icon="⚠️"
+                          Variant="danger" />
+            </div>
+        </div>
+    }
+
+    @if (_showTaskForm)
+    {
+        <div class="crm-card p-4 mb-4 border-primary">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="fw-bold mb-0">@(_editingTaskId.HasValue ? "Edit Academic Task" : "Create New Academic Task")</h5>
+                <button type="button" class="btn-close" @onclick="CancelTaskForm"></button>
+            </div>
+
+            <EditForm Model="_taskForm" OnValidSubmit="SaveTaskAsync">
+                <DataAnnotationsValidator />
+                <div class="row g-3">
+                    @if (IsAdmin)
+                    {
+                        <div class="col-md-6">
+                            <label class="form-label">Assigned Student</label>
+                            <InputSelect class="form-select" @bind-Value="_taskForm.StudentId">
+                                <option value="0">-- Select Student --</option>
+                                @foreach (var s in _students)
+                                {
+                                    <option value="@s.Id">@s.FullName (@s.StudentNumber)</option>
+                                }
+                            </InputSelect>
+                            <ValidationMessage For="() => _taskForm.StudentId" />
+                        </div>
+                    }
+                    <div class="@(IsAdmin ? "col-md-6" : "col-md-12")">
+                        <label class="form-label">Related Course (Optional)</label>
+                        <InputSelect class="form-select" @bind-Value="_selectedFormCourseId">
+                            <option value="0">General / Personal Study Task</option>
+                            @foreach (var c in _courses)
+                            {
+                                <option value="@c.Id">@c.CourseCode — @c.Title</option>
+                            }
+                        </InputSelect>
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label">Task Title</label>
+                        <InputText class="form-control" @bind-Value="_taskForm.Title" placeholder="e.g., Complete EF Core Migration Lab Report" />
+                        <ValidationMessage For="() => _taskForm.Title" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Deadline Date &amp; Time</label>
+                        <input type="datetime-local"
+                               class="form-control"
+                               value="@_taskForm.DueDate.ToString("yyyy-MM-ddTHH:mm")"
+                               @onchange="OnDueDateChanged" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Priority</label>
+                        <InputSelect class="form-select" @bind-Value="_taskForm.Priority">
+                            @foreach (var p in Enum.GetValues<TaskPriority>())
+                            {
+                                <option value="@p">@p</option>
+                            }
+                        </InputSelect>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Status</label>
+                        <InputSelect class="form-select" @bind-Value="_taskForm.Status">
+                            @foreach (var st in Enum.GetValues<StudentTaskStatus>())
+                            {
+                                <option value="@st">@st</option>
+                            }
+                        </InputSelect>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Task Description &amp; Deliverable Notes</label>
+                        <InputTextArea class="form-control" rows="3" @bind-Value="_taskForm.Description" placeholder="Describe assignment requirements, rubric notes, or study steps..." />
+                        <ValidationMessage For="() => _taskForm.Description" />
+                    </div>
+                </div>
+                <div class="d-flex justify-content-end gap-2 mt-4">
+                    <button type="button" class="btn btn-outline-secondary" @onclick="CancelTaskForm">Cancel</button>
+                    <button type="submit" class="btn btn-primary" disabled="@_isBusy">
+                        @(_editingTaskId.HasValue ? "Save Task Changes" : "Create Task")
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    <div class="crm-card p-3 mb-4">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label small fw-semibold mb-1">Search Tasks</label>
+                <input type="text"
+                       class="form-control form-control-sm"
+                       placeholder="Search title, description, course..."
+                       @bind="_searchTerm"
+                       @bind:event="oninput" />
+            </div>
+            @if (IsAdmin)
+            {
+                <div class="col-md-2">
+                    <label class="form-label small fw-semibold mb-1">Student</label>
+                    <select class="form-select form-select-sm" @bind="_filterStudentId">
+                        <option value="0">All Students</option>
+                        @foreach (var s in _students)
+                        {
+                            <option value="@s.Id">@s.FullName</option>
+                        }
+                    </select>
+                </div>
+            }
+            <div class="col-md-2">
+                <label class="form-label small fw-semibold mb-1">Course</label>
+                <select class="form-select form-select-sm" @bind="_filterCourseId">
+                    <option value="0">All Courses</option>
+                    @foreach (var c in _courses)
+                    {
+                        <option value="@c.Id">@c.CourseCode</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-semibold mb-1">Status</label>
+                <select class="form-select form-select-sm" @bind="_filterStatusString">
+                    <option value="">All Statuses</option>
+                    <option value="Pending">Pending</option>
+                    <option value="InProgress">In Progress</option>
+                    <option value="Completed">Completed</option>
+                    <option value="Overdue">Overdue</option>
+                </select>
+            </div>
+            <div class="col-md-1">
+                <label class="form-label small fw-semibold mb-1">Priority</label>
+                <select class="form-select form-select-sm" @bind="_filterPriorityString">
+                    <option value="">All</option>
+                    <option value="High">High</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Low">Low</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-semibold mb-1">Sort By</label>
+                <select class="form-select form-select-sm" @bind="_sortBy">
+                    <option value="deadline_asc">Deadline (Earliest)</option>
+                    <option value="deadline_desc">Deadline (Latest)</option>
+                    <option value="priority_desc">Priority (High → Low)</option>
+                    <option value="priority_asc">Priority (Low → High)</option>
+                    <option value="status">Task Status</option>
+                </select>
+            </div>
+        </div>
+        <div class="d-flex justify-content-end gap-2 mt-2 pt-2 border-top">
+            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ResetFiltersAsync">Reset Filters</button>
+            <button type="button" class="btn btn-sm btn-primary" @onclick="ApplyFiltersAsync">Apply Filters &amp; Sort</button>
+        </div>
+    </div>
+
+    @if (_tasks.Count == 0)
+    {
+        <EmptyStateCard Icon="📋"
+                        Title="No tasks match your filter"
+                        Description="Create a new academic or personal task or adjust your filter criteria." />
+    }
+    else
+    {
+        <div class="d-flex flex-column gap-3">
+            @foreach (var task in _tasks)
+            {
+                <div class="crm-card p-3 @(task.IsOverdue ? "border-danger" : task.IsDueSoon ? "border-warning" : "")">
+                    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+                        <div class="d-flex align-items-center flex-wrap gap-2">
+                            <span class="badge @GetStatusBadgeClass(task.Status)">@FormatStatus(task.Status)</span>
+                            <span class="badge @GetPriorityBadgeClass(task.Priority)">@task.Priority Priority</span>
+                            @if (!string.IsNullOrWhiteSpace(task.CourseCode))
+                            {
+                                <span class="badge bg-primary-subtle text-primary fw-bold">@task.CourseCode — @task.CourseTitle</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-light text-secondary border">Personal Study</span>
+                            }
+                            @if (task.IsDueSoon)
+                            {
+                                <span class="badge bg-warning text-dark">⏰ Due Soon</span>
+                            }
+                        </div>
+                        <div class="small text-muted">
+                            @if (IsAdmin)
+                            {
+                                <span class="me-2">🎓 <strong>@task.StudentName</strong> (@task.StudentNumber) •</span>
+                            }
+                            <span>📅 Due: <strong class="@(task.IsOverdue ? "text-danger" : "text-dark")">@task.DueDate.ToString("yyyy-MM-dd HH:mm")</strong></span>
+                        </div>
+                    </div>
+
+                    <h5 class="fw-bold mb-1 @(task.Status == StudentTaskStatus.Completed ? "text-decoration-line-through text-muted" : "")">
+                        @task.Title
+                    </h5>
+                    <p class="text-muted small mb-3">@task.Description</p>
+
+                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 pt-2 border-top">
+                        <div class="d-flex flex-wrap gap-1">
+                            @if (task.Status != StudentTaskStatus.InProgress && task.Status != StudentTaskStatus.Completed)
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-info" @onclick="() => QuickChangeStatusAsync(task.Id, StudentTaskStatus.InProgress)">
+                                    ▶ Start In Progress
+                                </button>
+                            }
+                            @if (task.Status != StudentTaskStatus.Completed)
+                            {
+                                <button type="button" class="btn btn-sm btn-success" @onclick="() => QuickChangeStatusAsync(task.Id, StudentTaskStatus.Completed)">
+                                    ✓ Mark Completed
+                                </button>
+                            }
+                            else
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => QuickChangeStatusAsync(task.Id, StudentTaskStatus.Pending)">
+                                    ↺ Reopen Task
+                                </button>
+                            }
+                        </div>
+
+                        <div class="btn-group btn-group-sm">
+                            <button type="button" class="btn btn-outline-secondary" @onclick="() => OpenEditTaskForm(task)">Edit</button>
+                            <button type="button" class="btn btn-outline-danger" @onclick="() => DeleteTaskAsync(task.Id)">Delete</button>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    private List<StudentTaskDto> _tasks = [];
+    private TaskSummaryStatsDto? _stats;
+    private List<CourseDto> _courses = [];
+    private List<StudentDto> _students = [];
+
+    private string? _searchTerm;
+    private int _filterStudentId;
+    private int _filterCourseId;
+    private string _filterStatusString = string.Empty;
+    private string _filterPriorityString = string.Empty;
+    private string _sortBy = "deadline_asc";
+
+    private bool _showTaskForm;
+    private int? _editingTaskId;
+    private int _selectedFormCourseId;
+    private SaveStudentTaskRequestDto _taskForm = new();
+
+    private bool _isBusy;
+    private string? _alertMessage;
+    private string _alertVariant = "info";
+
+    private bool IsAdmin => AuthStateProvider.GetAccessContext().IsAdmin;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthStateProvider.AuthenticationStateChanged += OnAuthStateChanged;
+        await LoadPageDataAsync();
+    }
+
+    private async Task LoadPageDataAsync()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        if (!access.IsAuthenticated)
+        {
+            return;
+        }
+
+        var coursesRes = await AcademicService.GetCoursesAsync(null, null, access);
+        if (coursesRes.Succeeded && coursesRes.Data is not null)
+        {
+            _courses = coursesRes.Data.ToList();
+        }
+
+        if (access.IsAdmin)
+        {
+            var studentsRes = await StudentService.GetStudentsAsync(null, access);
+            if (studentsRes.Succeeded && studentsRes.Data is not null)
+            {
+                _students = studentsRes.Data.ToList();
+            }
+        }
+
+        await ApplyFiltersAsync();
+    }
+
+    private async Task ApplyFiltersAsync()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        if (!access.IsAuthenticated)
+        {
+            return;
+        }
+
+        StudentTaskStatus? parsedStatus = Enum.TryParse<StudentTaskStatus>(_filterStatusString, out var st) ? st : null;
+        TaskPriority? parsedPriority = Enum.TryParse<TaskPriority>(_filterPriorityString, out var pr) ? pr : null;
+        int? targetStudentId = IsAdmin ? (_filterStudentId > 0 ? _filterStudentId : null) : access.StudentId;
+        int? targetCourseId = _filterCourseId > 0 ? _filterCourseId : null;
+
+        var filter = new TaskFilterDto
+        {
+            StudentId = targetStudentId,
+            CourseId = targetCourseId,
+            Status = parsedStatus,
+            Priority = parsedPriority,
+            SearchTerm = _searchTerm,
+            SortBy = _sortBy
+        };
+
+        var tasksRes = await TaskService.GetTasksAsync(filter, access);
+        if (tasksRes.Succeeded && tasksRes.Data is not null)
+        {
+            _tasks = tasksRes.Data.ToList();
+        }
+
+        var statsRes = await TaskService.GetTaskSummaryStatsAsync(targetStudentId, access);
+        if (statsRes.Succeeded)
+        {
+            _stats = statsRes.Data;
+        }
+    }
+
+    private async Task ResetFiltersAsync()
+    {
+        _searchTerm = null;
+        _filterStudentId = 0;
+        _filterCourseId = 0;
+        _filterStatusString = string.Empty;
+        _filterPriorityString = string.Empty;
+        _sortBy = "deadline_asc";
+        await ApplyFiltersAsync();
+    }
+
+    private void OpenCreateTaskForm()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        _editingTaskId = null;
+        _selectedFormCourseId = _courses.FirstOrDefault()?.Id ?? 0;
+        _taskForm = new SaveStudentTaskRequestDto
+        {
+            StudentId = access.StudentId ?? (_students.FirstOrDefault()?.Id ?? 0),
+            CourseId = _selectedFormCourseId > 0 ? _selectedFormCourseId : null,
+            Title = string.Empty,
+            Description = string.Empty,
+            DueDate = DateTime.UtcNow.AddDays(3),
+            Priority = TaskPriority.Medium,
+            Status = StudentTaskStatus.Pending
+        };
+        _showTaskForm = true;
+    }
+
+    private void OpenEditTaskForm(StudentTaskDto task)
+    {
+        _editingTaskId = task.Id;
+        _selectedFormCourseId = task.CourseId ?? 0;
+        _taskForm = new SaveStudentTaskRequestDto
+        {
+            StudentId = task.StudentId,
+            CourseId = task.CourseId,
+            Title = task.Title,
+            Description = task.Description,
+            DueDate = task.DueDate,
+            Priority = task.Priority,
+            Status = task.Status
+        };
+        _showTaskForm = true;
+    }
+
+    private void CancelTaskForm()
+    {
+        _showTaskForm = false;
+        _editingTaskId = null;
+    }
+
+    private void OnDueDateChanged(ChangeEventArgs e)
+    {
+        if (DateTime.TryParse(e.Value?.ToString(), out var parsed))
+        {
+            _taskForm.DueDate = parsed;
+        }
+    }
+
+    private async Task SaveTaskAsync()
+    {
+        _isBusy = true;
+        var access = AuthStateProvider.GetAccessContext();
+        _taskForm.CourseId = _selectedFormCourseId > 0 ? _selectedFormCourseId : null;
+
+        var result = _editingTaskId.HasValue
+            ? await TaskService.UpdateTaskAsync(_editingTaskId.Value, _taskForm, access)
+            : await TaskService.CreateTaskAsync(_taskForm, access);
+
+        _isBusy = false;
+        if (result.Succeeded)
+        {
+            _showTaskForm = false;
+            _editingTaskId = null;
+            SetAlert(result.Message ?? "Task saved.", "success");
+            await ApplyFiltersAsync();
+        }
+        else
+        {
+            SetAlert(result.Message ?? "Could not save task.", "danger");
+        }
+    }
+
+    private async Task QuickChangeStatusAsync(int taskId, StudentTaskStatus newStatus)
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        var result = await TaskService.UpdateTaskStatusAsync(taskId, newStatus, access);
+        if (result.Succeeded)
+        {
+            SetAlert(result.Message ?? "Task status updated.", "success");
+            await ApplyFiltersAsync();
+        }
+        else
+        {
+            SetAlert(result.Message ?? "Failed to update task status.", "danger");
+        }
+    }
+
+    private async Task DeleteTaskAsync(int taskId)
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        var result = await TaskService.DeleteTaskAsync(taskId, access);
+        if (result.Succeeded)
+        {
+            SetAlert("Task deleted.", "info");
+            await ApplyFiltersAsync();
+        }
+        else
+        {
+            SetAlert(result.Message ?? "Failed to delete task.", "danger");
+        }
+    }
+
+    private static string FormatStatus(StudentTaskStatus status) => status switch
+    {
+        StudentTaskStatus.InProgress => "In Progress",
+        _ => status.ToString()
+    };
+
+    private static string GetStatusBadgeClass(StudentTaskStatus status) => status switch
+    {
+        StudentTaskStatus.Completed => "bg-success",
+        StudentTaskStatus.InProgress => "bg-info text-dark",
+        StudentTaskStatus.Overdue => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    private static string GetPriorityBadgeClass(TaskPriority priority) => priority switch
+    {
+        TaskPriority.High => "bg-danger-subtle text-danger-emphasis border border-danger-subtle",
+        TaskPriority.Medium => "bg-warning-subtle text-warning-emphasis border border-warning-subtle",
+        _ => "bg-light text-secondary border"
+    };
+
+    private void SetAlert(string message, string variant)
+    {
+        _alertMessage = message;
+        _alertVariant = variant;
+    }
+
+    private void ClearAlert() => _alertMessage = null;
+
+    private void OnAuthStateChanged(Task<AuthenticationState> task)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await LoadPageDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        AuthStateProvider.AuthenticationStateChanged -= OnAuthStateChanged;
+    }
+}

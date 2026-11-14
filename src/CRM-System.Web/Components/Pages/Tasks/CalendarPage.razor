@@ -1,0 +1,290 @@
+@page "/calendar"
+@implements IDisposable
+@inject CrmAuthStateProvider AuthStateProvider
+@inject ITaskNotificationService TaskService
+@inject IStudentService StudentService
+
+<PageTitle>Academic Calendar — Student CRM</PageTitle>
+
+@{
+    var access = AuthStateProvider.GetAccessContext();
+}
+
+@if (!access.IsAuthenticated)
+{
+    <EmptyStateCard Icon="🔒" Title="Authentication Required" Description="Please sign in to view your academic calendar and deadline schedule.">
+        <a href="login" class="btn btn-primary">Go to Sign In</a>
+    </EmptyStateCard>
+}
+else
+{
+    <div class="crm-page-header">
+        <div>
+            <h1 class="crm-page-title">Academic Calendar &amp; Deadlines</h1>
+            <p class="crm-page-subtitle">
+                Unified monthly view of course assignment deadlines, personal study milestones, and weekly class sessions.
+            </p>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <div class="btn-group">
+                <button type="button" class="btn btn-outline-secondary" @onclick="PrevMonthAsync">← Previous</button>
+                <button type="button" class="btn btn-outline-primary fw-semibold" @onclick="GoToCurrentMonthAsync">Current Month</button>
+                <button type="button" class="btn btn-outline-secondary" @onclick="NextMonthAsync">Next →</button>
+            </div>
+            <a href="tasks" class="btn btn-primary">Manage Tasks</a>
+        </div>
+    </div>
+
+    @if (IsAdmin && _students.Count > 0)
+    {
+        <div class="crm-card p-3 mb-4">
+            <div class="row g-3 align-items-center">
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold small mb-1">Inspect Student Academic Calendar</label>
+                    <select class="form-select form-select-sm" value="@_selectedStudentId" @onchange="OnSelectedStudentChangedAsync">
+                        <option value="0">All Students &amp; Courses</option>
+                        @foreach (var s in _students)
+                        {
+                            <option value="@s.Id">@s.FullName (@s.StudentNumber)</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-6 text-md-end pt-md-3">
+                    <span class="badge bg-info-subtle text-info-emphasis me-2">📘 Class Session</span>
+                    <span class="badge bg-primary-subtle text-primary me-2">📌 Task Deadline</span>
+                    <span class="badge bg-danger-subtle text-danger">⚠️ Overdue Task</span>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_calendar is not null)
+    {
+        <div class="row g-4">
+            <div class="col-lg-8">
+                <div class="crm-card p-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+                        <h4 class="fw-bold mb-0">🗓️ @_calendar.MonthTitle</h4>
+                        <span class="text-muted small">
+                            @_calendar.Events.Count(e => e.EventCategory == "Deadline") deadline(s) • @_calendar.Events.Count(e => e.EventCategory == "Class") class session(s)
+                        </span>
+                    </div>
+
+                    @{
+                        var daysWithEvents = _calendar.Events
+                            .GroupBy(e => e.Date)
+                            .OrderBy(g => g.Key)
+                            .ToList();
+                    }
+
+                    @if (daysWithEvents.Count == 0)
+                    {
+                        <EmptyStateCard Icon="📅"
+                                        Title="No scheduled events or deadlines in this month"
+                                        Description="Navigate to another month or create a task with a deadline in this period." />
+                    }
+                    else
+                    {
+                        <div class="d-flex flex-column gap-3">
+                            @foreach (var dayGroup in daysWithEvents)
+                            {
+                                var isToday = dayGroup.Key == DateOnly.FromDateTime(DateTime.Now);
+                                <div class="border rounded-3 p-3 @(isToday ? "border-primary bg-primary-subtle bg-opacity-10" : "")">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <div class="fw-bold @(isToday ? "text-primary" : "")">
+                                            @dayGroup.Key.ToString("dddd, MMMM dd, yyyy")
+                                            @if (isToday)
+                                            {
+                                                <span class="badge bg-primary ms-2">Today</span>
+                                            }
+                                        </div>
+                                        <span class="badge bg-light text-secondary border">@dayGroup.Count() item(s)</span>
+                                    </div>
+
+                                    <div class="d-flex flex-column gap-2">
+                                        @foreach (var ev in dayGroup)
+                                        {
+                                            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 p-2 rounded-2 bg-white border">
+                                                <div>
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <span class="badge @(ev.EventCategory == "Deadline" ? "bg-dark" : "bg-info text-dark")">
+                                                            @ev.EventCategory
+                                                        </span>
+                                                        @if (!string.IsNullOrWhiteSpace(ev.CourseCode))
+                                                        {
+                                                            <span class="badge bg-primary-subtle text-primary fw-bold">@ev.CourseCode</span>
+                                                        }
+                                                        <span class="fw-semibold @(ev.IsCompleted ? "text-decoration-line-through text-muted" : "")">@ev.Title</span>
+                                                    </div>
+                                                    <div class="text-muted small mt-1">@ev.Subtitle</div>
+                                                </div>
+                                                <span class="badge bg-@ev.BadgeVariant">@ev.BadgeText</span>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="crm-card p-4 mb-4">
+                    <h6 class="fw-bold text-danger mb-3">⚠️ Overdue Tasks (@_calendar.OverdueTasks.Count)</h6>
+                    @if (_calendar.OverdueTasks.Count == 0)
+                    {
+                        <div class="text-muted small">No overdue tasks — great job staying on track!</div>
+                    }
+                    else
+                    {
+                        <div class="d-flex flex-column gap-2">
+                            @foreach (var task in _calendar.OverdueTasks)
+                            {
+                                <div class="border border-danger-subtle rounded-3 p-2 bg-danger-subtle bg-opacity-10">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <span class="badge bg-danger">Overdue</span>
+                                        <span class="small text-danger fw-semibold">@task.DueDate.ToString("MMM dd, HH:mm")</span>
+                                    </div>
+                                    <div class="fw-semibold small mt-1">@task.Title</div>
+                                    @if (!string.IsNullOrWhiteSpace(task.CourseCode))
+                                    {
+                                        <div class="text-muted" style="font-size: 0.75rem;">@task.CourseCode — @task.CourseTitle</div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+
+                <div class="crm-card p-4">
+                    <h6 class="fw-bold text-primary mb-3">⏳ Upcoming Deadlines (@_calendar.UpcomingDeadlines.Count)</h6>
+                    @if (_calendar.UpcomingDeadlines.Count == 0)
+                    {
+                        <div class="text-muted small">No upcoming task deadlines scheduled.</div>
+                    }
+                    else
+                    {
+                        <div class="d-flex flex-column gap-2">
+                            @foreach (var task in _calendar.UpcomingDeadlines)
+                            {
+                                <div class="border rounded-3 p-2">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <span class="badge @(task.Priority == TaskPriority.High ? "bg-warning text-dark" : "bg-primary")">
+                                            @task.Priority
+                                        </span>
+                                        <span class="small text-muted fw-semibold">@task.DueDate.ToString("MMM dd, HH:mm")</span>
+                                    </div>
+                                    <div class="fw-semibold small mt-1">@task.Title</div>
+                                    @if (!string.IsNullOrWhiteSpace(task.CourseCode))
+                                    {
+                                        <div class="text-muted" style="font-size: 0.75rem;">@task.CourseCode — @task.CourseTitle</div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private AcademicCalendarMonthDto? _calendar;
+    private List<StudentDto> _students = [];
+    private int _selectedStudentId;
+    private int _currentYear = DateTime.UtcNow.Year;
+    private int _currentMonth = DateTime.UtcNow.Month;
+
+    private bool IsAdmin => AuthStateProvider.GetAccessContext().IsAdmin;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthStateProvider.AuthenticationStateChanged += OnAuthStateChanged;
+        await LoadPageDataAsync();
+    }
+
+    private async Task LoadPageDataAsync()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        if (!access.IsAuthenticated)
+        {
+            return;
+        }
+
+        if (access.IsAdmin)
+        {
+            var studentsRes = await StudentService.GetStudentsAsync(null, access);
+            if (studentsRes.Succeeded && studentsRes.Data is not null)
+            {
+                _students = studentsRes.Data.ToList();
+                if (_selectedStudentId == 0 && _students.Count > 0)
+                {
+                    _selectedStudentId = _students[0].Id;
+                }
+            }
+        }
+        else if (access.StudentId.HasValue)
+        {
+            _selectedStudentId = access.StudentId.Value;
+        }
+
+        await ReloadCalendarAsync();
+    }
+
+    private async Task ReloadCalendarAsync()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        int? targetStudentId = _selectedStudentId > 0 ? _selectedStudentId : null;
+        var res = await TaskService.GetCalendarMonthAsync(targetStudentId, _currentYear, _currentMonth, access);
+        if (res.Succeeded)
+        {
+            _calendar = res.Data;
+        }
+    }
+
+    private async Task OnSelectedStudentChangedAsync(ChangeEventArgs e)
+    {
+        _selectedStudentId = int.TryParse(e.Value?.ToString(), out var id) ? id : 0;
+        await ReloadCalendarAsync();
+    }
+
+    private async Task PrevMonthAsync()
+    {
+        var dt = new DateTime(_currentYear, _currentMonth, 1).AddMonths(-1);
+        _currentYear = dt.Year;
+        _currentMonth = dt.Month;
+        await ReloadCalendarAsync();
+    }
+
+    private async Task NextMonthAsync()
+    {
+        var dt = new DateTime(_currentYear, _currentMonth, 1).AddMonths(1);
+        _currentYear = dt.Year;
+        _currentMonth = dt.Month;
+        await ReloadCalendarAsync();
+    }
+
+    private async Task GoToCurrentMonthAsync()
+    {
+        var now = DateTime.UtcNow;
+        _currentYear = now.Year;
+        _currentMonth = now.Month;
+        await ReloadCalendarAsync();
+    }
+
+    private void OnAuthStateChanged(Task<AuthenticationState> task)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await LoadPageDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        AuthStateProvider.AuthenticationStateChanged -= OnAuthStateChanged;
+    }
+}

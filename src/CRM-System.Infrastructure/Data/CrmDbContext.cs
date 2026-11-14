@@ -1,5 +1,6 @@
 using CRM_System.Core.Academic.Models;
 using CRM_System.Core.Students.Models;
+using CRM_System.Core.Tasks.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace CRM_System.Infrastructure.Data;
@@ -22,6 +23,10 @@ public class CrmDbContext : DbContext
     public DbSet<Grade> Grades => Set<Grade>();
     public DbSet<ScheduleEntry> ScheduleEntries => Set<ScheduleEntry>();
     public DbSet<AttendanceRecord> AttendanceRecords => Set<AttendanceRecord>();
+
+    // Stage 3: Tasks & Notifications
+    public DbSet<StudentTask> StudentTasks => Set<StudentTask>();
+    public DbSet<Notification> Notifications => Set<Notification>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -3,9 +3,12 @@ using CRM_System.Core.Academic.Models;
 using CRM_System.Core.Academic.Services;
 using CRM_System.Core.Students.Interfaces;
 using CRM_System.Core.Students.Services;
+using CRM_System.Core.Tasks.Interfaces;
+using CRM_System.Core.Tasks.Services;
 using CRM_System.Infrastructure.Academic;
 using CRM_System.Infrastructure.Data;
 using CRM_System.Infrastructure.Students;
+using CRM_System.Infrastructure.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -52,6 +55,10 @@ public static class DependencyInjection
         // Stage 2: Academic Management
         services.AddScoped<IAcademicRepository, AcademicRepository>();
         services.AddScoped<IAcademicService, AcademicService>();
+
+        // Stage 3: Tasks & Notifications
+        services.AddScoped<ITaskNotificationRepository, TaskNotificationRepository>();
+        services.AddScoped<ITaskNotificationService, TaskNotificationService>();
 
         return services;
     }

@@ -4,6 +4,7 @@
 @inject IAuthService AuthService
 @inject IStudentService StudentService
 @inject IAcademicService AcademicService
+@inject ITaskNotificationService TaskService
 @inject NavigationManager Navigation
 
 <PageTitle>Dashboard — Student CRM</PageTitle>
@@ -62,7 +63,7 @@
         <div class="col-md-4">
             <div class="crm-card p-4 h-100">
                 <div class="fs-3 mb-2">📝</div>
-                <h5 class="fw-bold">Tasks &amp; Analytics</h5>
+                <h5 class="fw-bold">Tasks &amp; Notifications</h5>
                 <p class="text-muted small mb-0">
                     Course-linked assignments, deadline alerts, academic calendar, persisted notifications, and real-time performance analytics.
                 </p>
@@ -87,7 +88,14 @@ else
         <div class="d-flex flex-wrap gap-2">
             <a href="profile" class="btn btn-outline-primary">My Profile</a>
             <a href="courses" class="btn btn-outline-primary">Courses</a>
-            <a href="academic-performance" class="btn btn-outline-primary">GPA &amp; Grades</a>
+            <a href="tasks" class="btn btn-outline-primary">Tasks</a>
+            <a href="notifications" class="btn btn-outline-primary">
+                Notifications
+                @if (_unreadNotificationsCount > 0)
+                {
+                    <span class="badge bg-danger ms-1">@_unreadNotificationsCount</span>
+                }
+            </a>
             @if (string.Equals(user.Role, UserRoles.Admin, StringComparison.OrdinalIgnoreCase))
             {
                 <a href="students" class="btn btn-primary">Manage Students</a>
@@ -120,10 +128,10 @@ else
                           Variant="success" />
             </div>
             <div class="col-sm-6 col-xl-3">
-                <StatCard Title="Upcoming Classes"
-                          Value="@_upcomingClasses.Count.ToString()"
-                          Subtitle="Scheduled sessions ahead"
-                          Icon="🗓️"
+                <StatCard Title="Active &amp; Overdue Tasks"
+                          Value="@($"{(_taskStats?.PendingCount ?? 0) + (_taskStats?.InProgressCount ?? 0)} / {_taskStats?.OverdueCount ?? 0}")"
+                          Subtitle="@($"{_unreadNotificationsCount} unread notification(s)")"
+                          Icon="📝"
                           Variant="warning" />
             </div>
         </div>
@@ -135,13 +143,13 @@ else
                 <StatCard Title="Total Students" Value="@_stats.TotalStudents.ToString()" Subtitle="Registered in university CRM" Icon="🎓" Variant="primary" />
             </div>
             <div class="col-sm-6 col-xl-3">
-                <StatCard Title="Active Students" Value="@_stats.ActiveStudents.ToString()" Subtitle="Currently enrolled & active" Icon="✅" Variant="success" />
+                <StatCard Title="Active Courses" Value="@_totalCoursesCount.ToString()" Subtitle="@($"{_totalTeachersCount} faculty instructors")" Icon="📚" Variant="info" />
             </div>
             <div class="col-sm-6 col-xl-3">
-                <StatCard Title="Active Courses" Value="@_totalCoursesCount.ToString()" Subtitle="Offered in current catalog" Icon="📚" Variant="info" />
+                <StatCard Title="Student Tasks" Value="@(_taskStats?.TotalTasks.ToString() ?? "0")" Subtitle="@($"{_taskStats?.OverdueCount ?? 0} overdue across students")" Icon="📝" Variant="warning" />
             </div>
             <div class="col-sm-6 col-xl-3">
-                <StatCard Title="Faculty Members" Value="@_totalTeachersCount.ToString()" Subtitle="Assigned instructors & professors" Icon="👨‍🏫" Variant="warning" />
+                <StatCard Title="Unread Alerts" Value="@_unreadNotificationsCount.ToString()" Subtitle="Active system &amp; deadline notifications" Icon="🔔" Variant="danger" />
             </div>
         </div>
     }
@@ -162,9 +170,10 @@ else
                         </div>
                     </div>
                 </div>
-                <div class="d-flex gap-2">
+                <div class="d-flex flex-wrap gap-2">
                     <a href="schedule" class="btn btn-sm btn-outline-secondary">Weekly Schedule</a>
-                    <a href="attendance" class="btn btn-sm btn-outline-secondary">Attendance</a>
+                    <a href="calendar" class="btn btn-sm btn-outline-secondary">Academic Calendar</a>
+                    <a href="tasks" class="btn btn-sm btn-outline-secondary">My Tasks</a>
                     <a href="profile" class="btn btn-sm btn-outline-primary">Edit Personal Profile</a>
                 </div>
             </div>
@@ -194,16 +203,17 @@ else
         <div class="crm-card p-4">
             <h5 class="fw-bold mb-2">Administrator Quick Actions</h5>
             <p class="text-muted small mb-3">
-                Manage university student records, course catalog, teacher assignments, student grades, weekly schedules, and attendance logs.
+                Manage university student records, course catalog, teacher assignments, student grades, weekly schedules, attendance logs, tasks, and notifications.
             </p>
             <div class="d-flex flex-wrap gap-2">
                 <a href="students" class="btn btn-primary">Student Directory</a>
-                <a href="students/create" class="btn btn-outline-primary">+ Create Student</a>
                 <a href="courses" class="btn btn-outline-primary">Courses &amp; Teachers</a>
                 <a href="academic-performance" class="btn btn-outline-primary">Grades &amp; GPA</a>
                 <a href="schedule" class="btn btn-outline-primary">Class Schedule</a>
                 <a href="attendance" class="btn btn-outline-primary">Attendance Log</a>
-                <a href="settings" class="btn btn-outline-secondary">Security Settings</a>
+                <a href="tasks" class="btn btn-outline-primary">Student Tasks</a>
+                <a href="calendar" class="btn btn-outline-primary">Academic Calendar</a>
+                <a href="notifications" class="btn btn-outline-primary">Notifications Center</a>
             </div>
         </div>
     }
@@ -214,10 +224,11 @@ else
     private StudentDto? _myProfile;
     private StudentGpaSummaryDto? _myGpa;
     private StudentAttendanceStatsDto? _myAttendance;
-    private List<ScheduleEntryDto> _upcomingClasses = [];
+    private TaskSummaryStatsDto? _taskStats;
     private int _myEnrollmentsCount;
     private int _totalCoursesCount;
     private int _totalTeachersCount;
+    private int _unreadNotificationsCount;
 
     protected override async Task OnInitializedAsync()
     {
@@ -234,7 +245,8 @@ else
             _myProfile = null;
             _myGpa = null;
             _myAttendance = null;
-            _upcomingClasses = [];
+            _taskStats = null;
+            _unreadNotificationsCount = 0;
             return;
         }
 
@@ -249,6 +261,12 @@ else
 
         var teachersRes = await AcademicService.GetTeachersAsync(access);
         _totalTeachersCount = teachersRes.Succeeded && teachersRes.Data is not null ? teachersRes.Data.Count : 0;
+
+        var taskStatsRes = await TaskService.GetTaskSummaryStatsAsync(access.StudentId, access);
+        _taskStats = taskStatsRes.Succeeded ? taskStatsRes.Data : null;
+
+        var unreadRes = await TaskService.GetUnreadCountAsync(access.StudentId, access);
+        _unreadNotificationsCount = unreadRes.Succeeded ? unreadRes.Data : 0;
 
         if (access.UserId.HasValue)
         {
@@ -270,15 +288,11 @@ else
             _myEnrollmentsCount = enrRes.Succeeded && enrRes.Data is not null
                 ? enrRes.Data.Count(e => e.Status == EnrollmentStatus.Enrolled)
                 : 0;
-
-            var upRes = await AcademicService.GetUpcomingClassesAsync(sid, DateTime.Now, 4, access);
-            _upcomingClasses = upRes.Succeeded && upRes.Data is not null ? upRes.Data.ToList() : [];
         }
         else
         {
             _myGpa = null;
             _myAttendance = null;
-            _upcomingClasses = [];
         }
     }
 

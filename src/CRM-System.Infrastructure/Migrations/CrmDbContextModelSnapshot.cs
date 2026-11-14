@@ -160,6 +160,46 @@ partial class CrmDbContextModelSnapshot : ModelSnapshot
             b.ToTable("AttendanceRecords");
         });
 
+        modelBuilder.Entity("CRM_System.Core.Tasks.Models.StudentTask", b =>
+        {
+            b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("INTEGER");
+            b.Property<DateTime?>("CompletedAt").HasColumnType("TEXT");
+            b.Property<int?>("CourseId").HasColumnType("INTEGER");
+            b.Property<DateTime>("CreatedAt").HasColumnType("TEXT");
+            b.Property<string>("Description").IsRequired().HasMaxLength(1000).HasColumnType("TEXT");
+            b.Property<DateTime>("DueDate").HasColumnType("TEXT");
+            b.Property<int>("Priority").HasColumnType("INTEGER");
+            b.Property<int>("Status").HasColumnType("INTEGER");
+            b.Property<int>("StudentId").HasColumnType("INTEGER");
+            b.Property<string>("Title").IsRequired().HasMaxLength(150).HasColumnType("TEXT");
+            b.Property<DateTime>("UpdatedAt").HasColumnType("TEXT");
+            b.HasKey("Id");
+            b.HasIndex("CourseId");
+            b.HasIndex("StudentId", "Status", "DueDate");
+            b.ToTable("StudentTasks");
+        });
+
+        modelBuilder.Entity("CRM_System.Core.Tasks.Models.Notification", b =>
+        {
+            b.Property<int>("Id").ValueGeneratedOnAdd().HasColumnType("INTEGER");
+            b.Property<DateTime>("CreatedAt").HasColumnType("TEXT");
+            b.Property<bool>("IsRead").HasColumnType("INTEGER");
+            b.Property<string>("Message").IsRequired().HasMaxLength(1000).HasColumnType("TEXT");
+            b.Property<DateTime?>("ReadAt").HasColumnType("TEXT");
+            b.Property<int?>("RelatedCourseId").HasColumnType("INTEGER");
+            b.Property<int?>("RelatedTaskId").HasColumnType("INTEGER");
+            b.Property<int?>("StudentId").HasColumnType("INTEGER");
+            b.Property<string>("Title").IsRequired().HasMaxLength(150).HasColumnType("TEXT");
+            b.Property<int>("Type").HasColumnType("INTEGER");
+            b.Property<int?>("UserId").HasColumnType("INTEGER");
+            b.HasKey("Id");
+            b.HasIndex("RelatedCourseId");
+            b.HasIndex("RelatedTaskId");
+            b.HasIndex("StudentId", "IsRead", "CreatedAt");
+            b.HasIndex("UserId", "IsRead", "CreatedAt");
+            b.ToTable("Notifications");
+        });
+
         modelBuilder.Entity("CRM_System.Core.Students.Models.Student", b =>
         {
             b.HasOne("CRM_System.Core.Students.Models.ApplicationUser", "User")
@@ -234,6 +274,45 @@ partial class CrmDbContextModelSnapshot : ModelSnapshot
                 .IsRequired();
             b.Navigation("Course");
             b.Navigation("Student");
+        });
+
+        modelBuilder.Entity("CRM_System.Core.Tasks.Models.StudentTask", b =>
+        {
+            b.HasOne("CRM_System.Core.Academic.Models.Course", "Course")
+                .WithMany()
+                .HasForeignKey("CourseId")
+                .OnDelete(DeleteBehavior.SetNull);
+            b.HasOne("CRM_System.Core.Students.Models.Student", "Student")
+                .WithMany()
+                .HasForeignKey("StudentId")
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired();
+            b.Navigation("Course");
+            b.Navigation("Student");
+        });
+
+        modelBuilder.Entity("CRM_System.Core.Tasks.Models.Notification", b =>
+        {
+            b.HasOne("CRM_System.Core.Academic.Models.Course", "RelatedCourse")
+                .WithMany()
+                .HasForeignKey("RelatedCourseId")
+                .OnDelete(DeleteBehavior.SetNull);
+            b.HasOne("CRM_System.Core.Tasks.Models.StudentTask", "RelatedTask")
+                .WithMany()
+                .HasForeignKey("RelatedTaskId")
+                .OnDelete(DeleteBehavior.SetNull);
+            b.HasOne("CRM_System.Core.Students.Models.Student", "Student")
+                .WithMany()
+                .HasForeignKey("StudentId")
+                .OnDelete(DeleteBehavior.Cascade);
+            b.HasOne("CRM_System.Core.Students.Models.ApplicationUser", "User")
+                .WithMany()
+                .HasForeignKey("UserId")
+                .OnDelete(DeleteBehavior.Cascade);
+            b.Navigation("RelatedCourse");
+            b.Navigation("RelatedTask");
+            b.Navigation("Student");
+            b.Navigation("User");
         });
 
         modelBuilder.Entity("CRM_System.Core.Students.Models.ApplicationUser", b =>

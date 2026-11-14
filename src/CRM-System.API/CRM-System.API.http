@@ -33,3 +33,19 @@ Accept: application/json
 ### Get Student 1 Attendance Statistics
 GET {{CRM_System.API_HostAddress}}/api/attendance/stats/1
 Accept: application/json
+
+### Stage 3: Get Student 1 Tasks Sorted by Deadline
+GET {{CRM_System.API_HostAddress}}/api/tasks?studentId=1&sortBy=deadline_asc
+Accept: application/json
+
+### Stage 3: Get Student 1 Monthly Academic Calendar
+GET {{CRM_System.API_HostAddress}}/api/tasks/calendar?studentId=1&year=2026&month=11
+Accept: application/json
+
+### Stage 3: Get Student 1 Persisted Notifications
+GET {{CRM_System.API_HostAddress}}/api/notifications?studentId=1
+Accept: application/json
+
+### Stage 3: Synchronize Deadline & Overdue Notifications
+POST {{CRM_System.API_HostAddress}}/api/notifications/sync-deadlines?studentId=1
+Accept: application/json
