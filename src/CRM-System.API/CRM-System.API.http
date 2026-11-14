@@ -49,3 +49,20 @@ Accept: application/json
 ### Stage 3: Synchronize Deadline & Overdue Notifications
 POST {{CRM_System.API_HostAddress}}/api/notifications/sync-deadlines?studentId=1
 Accept: application/json
+
+### Stage 4: Get Complete Dashboard & Analytics Overview
+GET {{CRM_System.API_HostAddress}}/api/dashboard/overview?semester=Fall%202026
+Accept: application/json
+
+### Stage 4: Get Academic Analytics (GPA, Grade Distribution, Course & Student Rankings)
+GET {{CRM_System.API_HostAddress}}/api/dashboard/analytics/academic
+Accept: application/json
+
+### Stage 4: Get Attendance Analytics (Course & Student Breakdown, Status Distribution, Trends)
+GET {{CRM_System.API_HostAddress}}/api/dashboard/analytics/attendance
+Accept: application/json
+
+### Stage 4: Get Tasks & Productivity Analytics
+GET {{CRM_System.API_HostAddress}}/api/dashboard/analytics/tasks
+Accept: application/json
+

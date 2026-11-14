@@ -44,7 +44,7 @@ app.MapGet("/api/health", () => Results.Ok(new
 {
     status = "Healthy",
     application = "CRM for Students API",
-    stage = "Stage 3 - Tasks and Notifications",
+    stage = "Stage 4 - Dashboard and Analytics",
     timestampUtc = DateTime.UtcNow
 }))
 .WithName("GetApiHealth")
@@ -53,6 +53,7 @@ app.MapGet("/api/health", () => Results.Ok(new
 app.MapAuthAndStudentEndpoints();
 app.MapAcademicEndpoints();
 app.MapTaskNotificationEndpoints();
+app.MapDashboardAnalyticsEndpoints();
 
 app.Run();
 

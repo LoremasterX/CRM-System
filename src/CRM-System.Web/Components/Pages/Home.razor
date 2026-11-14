@@ -4,8 +4,7 @@
 @inject IAuthService AuthService
 @inject IStudentService StudentService
 @inject IAcademicService AcademicService
-@inject ITaskNotificationService TaskService
-@inject NavigationManager Navigation
+@inject IDashboardAnalyticsService AnalyticsService
 
 <PageTitle>Dashboard — Student CRM</PageTitle>
 
@@ -15,9 +14,9 @@
         <div class="row align-items-center g-4">
             <div class="col-lg-8">
                 <span class="badge bg-primary mb-2 px-3 py-2">University Student CRM Platform</span>
-                <h1 class="fw-bold display-6 mb-3">Centralized Academic &amp; Student Lifecycle Management</h1>
+                <h1 class="fw-bold display-6 mb-3">Centralized Academic, Productivity &amp; Analytics Portal</h1>
                 <p class="text-white-50 fs-6 mb-4">
-                    Manage personal academic profiles, university enrollment, courses, grades, schedules, attendance, tasks, and real-time notifications in one unified platform.
+                    Manage personal academic profiles, university enrollment, courses, grades, GPA analytics, weekly schedules, attendance tracking, tasks, and real-time notifications in one unified platform.
                 </p>
                 <div class="d-flex flex-wrap gap-2">
                     <a href="login" class="btn btn-primary px-4">Sign In to Portal</a>
@@ -27,7 +26,7 @@
             <div class="col-lg-4">
                 <div class="p-4 rounded-3" style="background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15);">
                     <h6 class="fw-bold text-white mb-2">Quick Demo Access</h6>
-                    <p class="small text-white-50 mb-3">Test role-based permissions immediately with pre-seeded university accounts:</p>
+                    <p class="small text-white-50 mb-3">Test role-based dashboards &amp; analytics immediately with pre-seeded university accounts:</p>
                     <div class="d-grid gap-2">
                         <button type="button" class="btn btn-light btn-sm fw-semibold" @onclick='() => QuickSignInAsync("admin@crm.edu", "Admin123!")'>
                             🔑 Sign In as Administrator
@@ -42,7 +41,7 @@
     </div>
 
     <div class="row g-3">
-        <div class="col-md-4">
+        <div class="col-md-6 col-xl-3">
             <div class="crm-card p-4 h-100">
                 <div class="fs-3 mb-2">👤</div>
                 <h5 class="fw-bold">Student Management</h5>
@@ -51,7 +50,7 @@
                 </p>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-6 col-xl-3">
             <div class="crm-card p-4 h-100">
                 <div class="fs-3 mb-2">📚</div>
                 <h5 class="fw-bold">Academic Tracking</h5>
@@ -60,12 +59,21 @@
                 </p>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-6 col-xl-3">
             <div class="crm-card p-4 h-100">
                 <div class="fs-3 mb-2">📝</div>
                 <h5 class="fw-bold">Tasks &amp; Notifications</h5>
                 <p class="text-muted small mb-0">
-                    Course-linked assignments, deadline alerts, academic calendar, persisted notifications, and real-time performance analytics.
+                    Course-linked assignments, deadline alerts, monthly academic calendar, and persisted notifications with read/unread tracking.
+                </p>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-3">
+            <div class="crm-card p-4 h-100">
+                <div class="fs-3 mb-2">📊</div>
+                <h5 class="fw-bold">Dashboard &amp; Analytics</h5>
+                <p class="text-muted small mb-0">
+                    Real-time GPA &amp; grade distributions, course &amp; student rankings, attendance trends, task productivity metrics, and dynamic filtering.
                 </p>
             </div>
         </div>
@@ -74,6 +82,8 @@
 else
 {
     var user = AuthStateProvider.CurrentUser;
+    var isAdmin = string.Equals(user.Role, UserRoles.Admin, StringComparison.OrdinalIgnoreCase);
+
     <div class="crm-page-header">
         <div>
             <h1 class="crm-page-title">Welcome back, @user.FullName</h1>
@@ -83,217 +93,779 @@ else
                 {
                     <span> • Student ID: <strong>@user.StudentNumber</strong></span>
                 }
+                @if (_overview?.Kpis.ScopedStudentName is { Length: > 0 } scopedName && isAdmin)
+                {
+                    <span class="badge bg-primary ms-2">Filtered: @scopedName</span>
+                }
             </p>
         </div>
         <div class="d-flex flex-wrap gap-2">
-            <a href="profile" class="btn btn-outline-primary">My Profile</a>
+            <a href="analytics" class="btn btn-primary">📉 Deep-Dive Analytics</a>
             <a href="courses" class="btn btn-outline-primary">Courses</a>
             <a href="tasks" class="btn btn-outline-primary">Tasks</a>
             <a href="notifications" class="btn btn-outline-primary">
                 Notifications
-                @if (_unreadNotificationsCount > 0)
+                @if ((_overview?.Kpis.UnreadNotificationsCount ?? 0) > 0)
                 {
-                    <span class="badge bg-danger ms-1">@_unreadNotificationsCount</span>
+                    <span class="badge bg-danger ms-1">@_overview!.Kpis.UnreadNotificationsCount</span>
                 }
             </a>
-            @if (string.Equals(user.Role, UserRoles.Admin, StringComparison.OrdinalIgnoreCase))
+            @if (isAdmin)
             {
-                <a href="students" class="btn btn-primary">Manage Students</a>
+                <a href="students" class="btn btn-outline-secondary">Manage Students</a>
+            }
+            else
+            {
+                <a href="profile" class="btn btn-outline-secondary">My Profile</a>
             }
         </div>
     </div>
 
-    @if (_myGpa is not null && _myAttendance is not null)
-    {
-        <div class="row g-3 mb-4">
-            <div class="col-sm-6 col-xl-3">
-                <StatCard Title="Cumulative GPA"
-                          Value="@($"{_myGpa.CumulativeGpa:F2} / {_myGpa.MaxGpaPoints:F1}")"
-                          Subtitle="@($"Overall Average: {_myGpa.OverallAveragePercentage:F1}%")"
-                          Icon="🏆"
-                          Variant="primary" />
+    <!-- Interactive Dashboard Filter Bar -->
+    <div class="crm-card p-3 mb-4">
+        <div class="row g-2 align-items-end">
+            <div class="col-sm-6 col-lg-2">
+                <label class="form-label small fw-semibold text-muted mb-1">Academic Period</label>
+                <select class="form-select form-select-sm" @bind="_selectedSemester">
+                    <option value="">All Semesters</option>
+                    @foreach (var sem in _availableSemesters)
+                    {
+                        <option value="@sem">@sem</option>
+                    }
+                </select>
             </div>
-            <div class="col-sm-6 col-xl-3">
-                <StatCard Title="Enrolled Courses"
-                          Value="@_myEnrollmentsCount.ToString()"
-                          Subtitle="@($"{_myGpa.TotalCreditsEarned} academic credits earned")"
+
+            <div class="col-sm-6 col-lg-3">
+                <label class="form-label small fw-semibold text-muted mb-1">Course</label>
+                <select class="form-select form-select-sm" @bind="_selectedCourseId">
+                    <option value="">All Courses</option>
+                    @foreach (var course in _courseOptions)
+                    {
+                        <option value="@course.Id">@course.CourseCode — @course.Title</option>
+                    }
+                </select>
+            </div>
+
+            @if (isAdmin)
+            {
+                <div class="col-sm-6 col-lg-3">
+                    <label class="form-label small fw-semibold text-muted mb-1">Student Scope</label>
+                    <select class="form-select form-select-sm" @bind="_selectedStudentId">
+                        <option value="">All Students (University Aggregate)</option>
+                        @foreach (var st in _studentOptions)
+                        {
+                            <option value="@st.Id">@st.FullName (@st.StudentNumber)</option>
+                        }
+                    </select>
+                </div>
+            }
+
+            <div class="col-sm-6 col-lg-2">
+                <label class="form-label small fw-semibold text-muted mb-1">From Date</label>
+                <input type="date" class="form-control form-control-sm" @bind="_dateFrom" />
+            </div>
+
+            <div class="col-sm-6 col-lg-2">
+                <label class="form-label small fw-semibold text-muted mb-1">To Date</label>
+                <input type="date" class="form-control form-control-sm" @bind="_dateTo" />
+            </div>
+
+            <div class="col-12 d-flex flex-wrap justify-content-between align-items-center gap-2 pt-2 border-top mt-2">
+                <div class="small text-muted">
+                    @if (HasActiveFilters)
+                    {
+                        <span class="fw-semibold text-primary">Active filters applied</span>
+                        <span> • Showing real-time filtered metrics across academic, attendance, and task records.</span>
+                    }
+                    else
+                    {
+                        <span>Showing complete @(isAdmin ? "university-wide" : "personal student") dashboard metrics.</span>
+                    }
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-primary px-3" @onclick="ApplyFiltersAsync" disabled="@_isLoading">
+                        Apply Filters
+                    </button>
+                    @if (HasActiveFilters)
+                    {
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ResetFiltersAsync" disabled="@_isLoading">
+                            Reset
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_errorMessage))
+    {
+        <div class="alert alert-danger d-flex justify-content-between align-items-center mb-4" role="alert">
+            <span>@_errorMessage</span>
+            <button type="button" class="btn-close" @onclick="() => _errorMessage = null"></button>
+        </div>
+    }
+
+    @if (_isLoading)
+    {
+        <div class="crm-card p-5 text-center my-4">
+            <div class="spinner-border text-primary mb-3" role="status"></div>
+            <div class="fw-semibold">Loading real-time dashboard analytics...</div>
+        </div>
+    }
+    else if (_overview is not null)
+    {
+        var kpis = _overview.Kpis;
+        var academic = _overview.AcademicAnalytics;
+        var attendance = _overview.AttendanceAnalytics;
+        var tasks = _overview.TaskAnalytics;
+
+        <!-- Primary KPI Statistic Cards -->
+        <div class="row g-3 mb-4">
+            @if (isAdmin && !kpis.ScopedStudentId.HasValue)
+            {
+                <div class="col-sm-6 col-xl-2">
+                    <StatCard Title="Total Students"
+                              Value="@kpis.TotalStudents.ToString()"
+                              Subtitle="@($"{kpis.ActiveStudents} active enrolled")"
+                              Icon="🎓"
+                              Variant="primary" />
+                </div>
+            }
+            else
+            {
+                <div class="col-sm-6 col-xl-2">
+                    <StatCard Title="Credits Earned"
+                              Value="@academic.ProgressOverview.TotalCreditsEarned.ToString()"
+                              Subtitle="@($"{academic.ProgressOverview.CreditCompletionPercentage:F0}% of enrolled credits")"
+                              Icon="🎓"
+                              Variant="primary" />
+                </div>
+            }
+
+            <div class="col-sm-6 col-xl-2">
+                <StatCard Title="Courses &amp; Faculty"
+                          Value="@kpis.TotalCourses.ToString()"
+                          Subtitle="@($"{kpis.TotalTeachers} teachers • {kpis.TotalEnrollments} enrollments")"
                           Icon="📚"
                           Variant="info" />
             </div>
-            <div class="col-sm-6 col-xl-3">
-                <StatCard Title="Attendance Rate"
-                          Value="@($"{_myAttendance.AttendanceRatePercentage:F1}%")"
-                          Subtitle="@($"{_myAttendance.PresentCount} Present / {_myAttendance.TotalSessions} Sessions")"
-                          Icon="📅"
+
+            <div class="col-sm-6 col-xl-2">
+                <StatCard Title="@(kpis.IsStudentScoped ? "Cumulative GPA" : "Average GPA")"
+                          Value="@($"{kpis.AverageGpa:F2} / {kpis.MaxGpaPoints:F1}")"
+                          Subtitle="@($"Avg Score: {kpis.OverallScorePercentage:F1}%")"
+                          Icon="🏆"
                           Variant="success" />
             </div>
-            <div class="col-sm-6 col-xl-3">
-                <StatCard Title="Active &amp; Overdue Tasks"
-                          Value="@($"{(_taskStats?.PendingCount ?? 0) + (_taskStats?.InProgressCount ?? 0)} / {_taskStats?.OverdueCount ?? 0}")"
-                          Subtitle="@($"{_unreadNotificationsCount} unread notification(s)")"
+
+            <div class="col-sm-6 col-xl-2">
+                <StatCard Title="Attendance Rate"
+                          Value="@($"{kpis.OverallAttendancePercentage:F1}%")"
+                          Subtitle="@($"{attendance.PresentCount}P / {attendance.LateCount}L / {attendance.AbsentCount}A")"
+                          Icon="✅"
+                          Variant="success" />
+            </div>
+
+            <div class="col-sm-6 col-xl-2">
+                <StatCard Title="Active Tasks"
+                          Value="@kpis.ActiveTasks.ToString()"
+                          Subtitle="@($"{kpis.CompletedTasks} done • {kpis.OverdueTasks} overdue")"
                           Icon="📝"
                           Variant="warning" />
             </div>
-        </div>
-    }
-    else if (_stats is not null)
-    {
-        <div class="row g-3 mb-4">
-            <div class="col-sm-6 col-xl-3">
-                <StatCard Title="Total Students" Value="@_stats.TotalStudents.ToString()" Subtitle="Registered in university CRM" Icon="🎓" Variant="primary" />
-            </div>
-            <div class="col-sm-6 col-xl-3">
-                <StatCard Title="Active Courses" Value="@_totalCoursesCount.ToString()" Subtitle="@($"{_totalTeachersCount} faculty instructors")" Icon="📚" Variant="info" />
-            </div>
-            <div class="col-sm-6 col-xl-3">
-                <StatCard Title="Student Tasks" Value="@(_taskStats?.TotalTasks.ToString() ?? "0")" Subtitle="@($"{_taskStats?.OverdueCount ?? 0} overdue across students")" Icon="📝" Variant="warning" />
-            </div>
-            <div class="col-sm-6 col-xl-3">
-                <StatCard Title="Unread Alerts" Value="@_unreadNotificationsCount.ToString()" Subtitle="Active system &amp; deadline notifications" Icon="🔔" Variant="danger" />
-            </div>
-        </div>
-    }
 
-    @if (_myProfile is not null)
-    {
-        <div class="crm-card p-4 mb-4">
-            <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="crm-avatar crm-avatar-lg">@_myProfile.Initials</div>
-                    <div>
-                        <div class="d-flex align-items-center gap-2 flex-wrap">
-                            <h4 class="fw-bold mb-0">@_myProfile.FullName</h4>
-                            <StatusBadge Status="_myProfile.Status" />
-                        </div>
-                        <div class="text-muted small mt-1">
-                            @_myProfile.StudentNumber • @_myProfile.Email
+            <div class="col-sm-6 col-xl-2">
+                <StatCard Title="Unread Alerts"
+                          Value="@kpis.UnreadNotificationsCount.ToString()"
+                          Subtitle="@($"{kpis.DueSoonTasks} task(s) due in 48h")"
+                          Icon="🔔"
+                          Variant="danger" />
+            </div>
+        </div>
+
+        @if (_myProfile is not null && !isAdmin)
+        {
+            <div class="crm-card p-4 mb-4">
+                <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="crm-avatar crm-avatar-lg">@_myProfile.Initials</div>
+                        <div>
+                            <div class="d-flex align-items-center gap-2 flex-wrap">
+                                <h4 class="fw-bold mb-0">@_myProfile.FullName</h4>
+                                <StatusBadge Status="_myProfile.Status" />
+                                @if (academic.HighestPerformer is not null)
+                                {
+                                    <span class="badge bg-@academic.HighestPerformer.StandingVariant-subtle text-@academic.HighestPerformer.StandingVariant border">
+                                        @academic.HighestPerformer.StandingLabel
+                                    </span>
+                                }
+                            </div>
+                            <div class="text-muted small mt-1">
+                                @_myProfile.StudentNumber • @_myProfile.Email
+                            </div>
                         </div>
                     </div>
+                    <div class="d-flex flex-wrap gap-2">
+                        <a href="schedule" class="btn btn-sm btn-outline-secondary">Weekly Schedule</a>
+                        <a href="calendar" class="btn btn-sm btn-outline-secondary">Academic Calendar</a>
+                        <a href="academic-performance" class="btn btn-sm btn-outline-secondary">Grades &amp; Transcript</a>
+                        <a href="profile" class="btn btn-sm btn-outline-primary">Edit Personal Profile</a>
+                    </div>
                 </div>
-                <div class="d-flex flex-wrap gap-2">
-                    <a href="schedule" class="btn btn-sm btn-outline-secondary">Weekly Schedule</a>
-                    <a href="calendar" class="btn btn-sm btn-outline-secondary">Academic Calendar</a>
-                    <a href="tasks" class="btn btn-sm btn-outline-secondary">My Tasks</a>
-                    <a href="profile" class="btn btn-sm btn-outline-primary">Edit Personal Profile</a>
+
+                <div class="row g-3 pt-2 border-top">
+                    <div class="col-md-3">
+                        <div class="text-muted small">University</div>
+                        <div class="fw-semibold">@_myProfile.University</div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-muted small">Faculty</div>
+                        <div class="fw-semibold">@_myProfile.Faculty</div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-muted small">Department</div>
+                        <div class="fw-semibold">@_myProfile.Department</div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-muted small">Program &amp; Year</div>
+                        <div class="fw-semibold">@_myProfile.StudyProgram (Year @_myProfile.StudyYear)</div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- Row 1: Academic Analytics (GPA & Grade Distribution + Top/Lowest Performers) & Attendance Overview -->
+        <div class="row g-4 mb-4">
+            <div class="col-lg-7">
+                <div class="crm-card p-4 h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div>
+                            <h5 class="fw-bold mb-0">📈 Academic Performance &amp; Grade Distribution</h5>
+                            <div class="text-muted small">
+                                @academic.TotalAssessmentsCount graded assessments across @academic.ProgressOverview.GradedCoursesCount course(s) • Pass rate: <strong>@academic.ProgressOverview.PassingAssessmentsPercentage.ToString("F1")%</strong>
+                            </div>
+                        </div>
+                        <a href="analytics" class="btn btn-sm btn-outline-primary">Full Report</a>
+                    </div>
+
+                    @if (academic.TotalAssessmentsCount == 0)
+                    {
+                        <div class="text-center text-muted py-4">
+                            No graded assessments match the current filter selection.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <div class="small fw-semibold text-muted mb-2">LETTER GRADE DISTRIBUTION</div>
+                                @foreach (var band in academic.GradeDistribution)
+                                {
+                                    <div class="mb-2">
+                                        <div class="d-flex justify-content-between small mb-1">
+                                            <span><strong>Grade @band.LetterGrade</strong> <span class="text-muted">(@band.Description)</span></span>
+                                            <span class="fw-semibold">@band.AssessmentCount (@band.PercentageOfAssessments.ToString("F0")%)</span>
+                                        </div>
+                                        <div class="progress" style="height: 8px;">
+                                            <div class="progress-bar bg-@band.ColorVariant"
+                                                 role="progressbar"
+                                                 style="width: @(Math.Max(band.AssessmentCount > 0 ? 4m : 0m, band.PercentageOfAssessments))%"></div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+
+                            <div class="col-md-6">
+                                <div class="small fw-semibold text-muted mb-2">GPA DISTRIBUTION BANDS</div>
+                                @foreach (var bucket in academic.GpaDistribution)
+                                {
+                                    <div class="mb-2">
+                                        <div class="d-flex justify-content-between small mb-1">
+                                            <span><strong>@bucket.Label</strong> <span class="text-muted">(@bucket.RangeDescription)</span></span>
+                                            <span class="fw-semibold">@bucket.StudentCount (@bucket.PercentageOfStudents.ToString("F0")%)</span>
+                                        </div>
+                                        <div class="progress" style="height: 8px;">
+                                            <div class="progress-bar bg-@bucket.ColorVariant"
+                                                 role="progressbar"
+                                                 style="width: @(Math.Max(bucket.StudentCount > 0 ? 4m : 0m, bucket.PercentageOfStudents))%"></div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        <div class="row g-2 pt-2 border-top">
+                            @if (academic.HighestPerformer is not null)
+                            {
+                                <div class="col-sm-6">
+                                    <div class="p-2 rounded bg-success-subtle border border-success-subtle">
+                                        <div class="small text-success fw-semibold">🏅 Highest Academic Performance</div>
+                                        <div class="fw-bold">@academic.HighestPerformer.StudentName</div>
+                                        <div class="small text-muted">
+                                            GPA: <strong>@academic.HighestPerformer.CumulativeGpa.ToString("F2")</strong> • Avg: @academic.HighestPerformer.OverallAveragePercentage.ToString("F1")% (@academic.HighestPerformer.TotalCreditsEarned cr)
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                            @if (academic.LowestPerformer is not null && academic.TotalGradedStudents > 1)
+                            {
+                                <div class="col-sm-6">
+                                    <div class="p-2 rounded bg-warning-subtle border border-warning-subtle">
+                                        <div class="small text-dark fw-semibold">📌 Lowest Academic Performance</div>
+                                        <div class="fw-bold">@academic.LowestPerformer.StudentName</div>
+                                        <div class="small text-muted">
+                                            GPA: <strong>@academic.LowestPerformer.CumulativeGpa.ToString("F2")</strong> • Avg: @academic.LowestPerformer.OverallAveragePercentage.ToString("F1")% (@academic.LowestPerformer.StandingLabel)
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                            else if (academic.TopPerformingCourse is not null)
+                            {
+                                <div class="col-sm-6">
+                                    <div class="p-2 rounded bg-primary-subtle border border-primary-subtle">
+                                        <div class="small text-primary fw-semibold">📘 Top Performing Course</div>
+                                        <div class="fw-bold">@academic.TopPerformingCourse.CourseCode — @academic.TopPerformingCourse.CourseTitle</div>
+                                        <div class="small text-muted">
+                                            Avg Score: <strong>@academic.TopPerformingCourse.AverageScorePercentage.ToString("F1")%</strong> (@academic.TopPerformingCourse.LetterGrade)
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
                 </div>
             </div>
 
-            <div class="row g-3 pt-2 border-top">
-                <div class="col-md-3">
-                    <div class="text-muted small">University</div>
-                    <div class="fw-semibold">@_myProfile.University</div>
-                </div>
-                <div class="col-md-3">
-                    <div class="text-muted small">Faculty</div>
-                    <div class="fw-semibold">@_myProfile.Faculty</div>
-                </div>
-                <div class="col-md-3">
-                    <div class="text-muted small">Department</div>
-                    <div class="fw-semibold">@_myProfile.Department</div>
-                </div>
-                <div class="col-md-3">
-                    <div class="text-muted small">Program &amp; Year</div>
-                    <div class="fw-semibold">@_myProfile.StudyProgram (Year @_myProfile.StudyYear)</div>
+            <div class="col-lg-5">
+                <div class="crm-card p-4 h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div>
+                            <h5 class="fw-bold mb-0">✅ Attendance Analytics</h5>
+                            <div class="text-muted small">
+                                @attendance.TotalSessions recorded session(s) • Strict present: <strong>@attendance.StrictPresentPercentage.ToString("F1")%</strong>
+                            </div>
+                        </div>
+                        <a href="attendance" class="btn btn-sm btn-outline-secondary">Log</a>
+                    </div>
+
+                    @if (attendance.TotalSessions == 0)
+                    {
+                        <div class="text-center text-muted py-4">
+                            No attendance records found for the selected filter criteria.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between small fw-semibold mb-1">
+                                <span class="text-success">Present: @attendance.PresentCount (@(attendance.StatusDistribution.FirstOrDefault(s => s.Status == AttendanceStatus.Present)?.Percentage ?? 0)%)</span>
+                                <span class="text-warning">Late: @attendance.LateCount (@(attendance.StatusDistribution.FirstOrDefault(s => s.Status == AttendanceStatus.Late)?.Percentage ?? 0)%)</span>
+                                <span class="text-danger">Absent: @attendance.AbsentCount (@(attendance.StatusDistribution.FirstOrDefault(s => s.Status == AttendanceStatus.Absent)?.Percentage ?? 0)%)</span>
+                            </div>
+                            <div class="progress" style="height: 14px;">
+                                @foreach (var slice in attendance.StatusDistribution)
+                                {
+                                    <div class="progress-bar bg-@slice.ColorVariant"
+                                         role="progressbar"
+                                         style="width: @slice.Percentage%"
+                                         title="@slice.Label: @slice.Count (@slice.Percentage%)"></div>
+                                }
+                            </div>
+                        </div>
+
+                        <div class="small fw-semibold text-muted mb-2">RECENT SESSION ATTENDANCE TRENDS</div>
+                        <div class="d-flex align-items-end gap-2 pt-2 pb-1 px-2 rounded bg-light border" style="height: 115px; overflow-x: auto;">
+                            @foreach (var point in attendance.AttendanceTrends.TakeLast(8))
+                            {
+                                var barColor = point.AttendanceRatePercentage >= 85m ? "#198754" : point.AttendanceRatePercentage >= 70m ? "#0d6efd" : "#dc3545";
+                                <div class="d-flex flex-column align-items-center flex-fill" style="min-width: 44px;">
+                                    <div class="small fw-bold" style="font-size: 0.68rem;">@point.AttendanceRatePercentage.ToString("F0")%</div>
+                                    <div class="w-100 rounded-top"
+                                         style="height: @(Math.Max(6, (int)(point.AttendanceRatePercentage * 0.55m)))px; background: @barColor;"
+                                         title="@point.PeriodLabel: @point.AttendanceRatePercentage% (@point.PresentCount P / @point.LateCount L / @point.AbsentCount A)"></div>
+                                    <div class="text-muted mt-1 text-nowrap" style="font-size: 0.66rem;">@point.PeriodLabel</div>
+                                </div>
+                            }
+                        </div>
+
+                        <div class="mt-3">
+                            <div class="small fw-semibold text-muted mb-2">ATTENDANCE BY COURSE</div>
+                            @foreach (var cStat in attendance.CourseStatistics.Where(c => c.TotalSessions > 0).Take(4))
+                            {
+                                <div class="d-flex justify-content-between align-items-center small py-1 border-bottom">
+                                    <span class="text-truncate me-2"><strong>@cStat.CourseCode</strong> — @cStat.CourseTitle</span>
+                                    <span class="badge bg-@(cStat.AttendanceRatePercentage >= 80m ? "success" : cStat.AttendanceRatePercentage >= 65m ? "warning" : "danger")">
+                                        @cStat.AttendanceRatePercentage.ToString("F1")% (@cStat.TotalSessions)
+                                    </span>
+                                </div>
+                            }
+                        </div>
+                    }
                 </div>
             </div>
         </div>
-    }
-    else if (string.Equals(user.Role, UserRoles.Admin, StringComparison.OrdinalIgnoreCase))
-    {
-        <div class="crm-card p-4">
-            <h5 class="fw-bold mb-2">Administrator Quick Actions</h5>
-            <p class="text-muted small mb-3">
-                Manage university student records, course catalog, teacher assignments, student grades, weekly schedules, attendance logs, tasks, and notifications.
-            </p>
-            <div class="d-flex flex-wrap gap-2">
-                <a href="students" class="btn btn-primary">Student Directory</a>
-                <a href="courses" class="btn btn-outline-primary">Courses &amp; Teachers</a>
-                <a href="academic-performance" class="btn btn-outline-primary">Grades &amp; GPA</a>
-                <a href="schedule" class="btn btn-outline-primary">Class Schedule</a>
-                <a href="attendance" class="btn btn-outline-primary">Attendance Log</a>
-                <a href="tasks" class="btn btn-outline-primary">Student Tasks</a>
-                <a href="calendar" class="btn btn-outline-primary">Academic Calendar</a>
-                <a href="notifications" class="btn btn-outline-primary">Notifications Center</a>
+
+        <!-- Row 2: Tasks & Productivity Analytics + Upcoming Deadlines -->
+        <div class="row g-4 mb-4">
+            <div class="col-lg-5">
+                <div class="crm-card p-4 h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div>
+                            <h5 class="fw-bold mb-0">📝 Tasks &amp; Productivity Analytics</h5>
+                            <div class="text-muted small">
+                                Completion rate: <strong>@tasks.CompletionRatePercentage.ToString("F1")%</strong> • On-time rate: <strong>@tasks.OnTimeCompletionRatePercentage.ToString("F1")%</strong>
+                            </div>
+                        </div>
+                        <a href="tasks" class="btn btn-sm btn-outline-primary">Manage Tasks</a>
+                    </div>
+
+                    <div class="row g-2 text-center mb-3">
+                        <div class="col-3">
+                            <div class="p-2 rounded bg-light border">
+                                <div class="fw-bold fs-5">@tasks.TotalTasks</div>
+                                <div class="text-muted" style="font-size: 0.72rem;">Total</div>
+                            </div>
+                        </div>
+                        <div class="col-3">
+                            <div class="p-2 rounded bg-success-subtle border border-success-subtle">
+                                <div class="fw-bold fs-5 text-success">@tasks.CompletedTasks</div>
+                                <div class="text-success" style="font-size: 0.72rem;">Completed</div>
+                            </div>
+                        </div>
+                        <div class="col-3">
+                            <div class="p-2 rounded bg-primary-subtle border border-primary-subtle">
+                                <div class="fw-bold fs-5 text-primary">@(tasks.PendingTasks + tasks.InProgressTasks)</div>
+                                <div class="text-primary" style="font-size: 0.72rem;">Pending/Active</div>
+                            </div>
+                        </div>
+                        <div class="col-3">
+                            <div class="p-2 rounded bg-danger-subtle border border-danger-subtle">
+                                <div class="fw-bold fs-5 text-danger">@tasks.OverdueTasks</div>
+                                <div class="text-danger" style="font-size: 0.72rem;">Overdue</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="small fw-semibold text-muted mb-2">TASKS GROUPED BY PRIORITY</div>
+                    @foreach (var prio in tasks.PriorityBreakdown)
+                    {
+                        <div class="mb-2">
+                            <div class="d-flex justify-content-between small mb-1">
+                                <span>
+                                    <span class="badge bg-@prio.ColorVariant me-1">@prio.Priority</span>
+                                    <span class="text-muted">@prio.CompletedCount/@prio.TotalCount completed (@prio.OverdueCount overdue)</span>
+                                </span>
+                                <span class="fw-semibold">@prio.TotalCount (@prio.PercentageOfTotal.ToString("F0")%)</span>
+                            </div>
+                            <div class="progress" style="height: 8px;">
+                                <div class="progress-bar bg-@prio.ColorVariant"
+                                     role="progressbar"
+                                     style="width: @(Math.Max(prio.TotalCount > 0 ? 5m : 0m, prio.PercentageOfTotal))%"></div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="col-lg-7">
+                <div class="crm-card p-4 h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div>
+                            <h5 class="fw-bold mb-0">⏰ Upcoming Deadlines &amp; Overdue Alerts</h5>
+                            <div class="text-muted small">
+                                Active assignments and academic milestones ordered by due date
+                            </div>
+                        </div>
+                        <a href="calendar" class="btn btn-sm btn-outline-secondary">📅 Academic Calendar</a>
+                    </div>
+
+                    @if (tasks.OverdueTaskItems.Count == 0 && _overview.UpcomingDeadlines.Count == 0)
+                    {
+                        <div class="text-center text-muted py-4">
+                            🎉 No pending or overdue task deadlines for the selected filters.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Task</th>
+                                        <th>Course</th>
+                                        @if (isAdmin && !kpis.ScopedStudentId.HasValue)
+                                        {
+                                            <th>Student</th>
+                                        }
+                                        <th>Priority</th>
+                                        <th>Due Date</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var item in tasks.OverdueTaskItems.Take(3).Concat(_overview.UpcomingDeadlines.Take(5)))
+                                    {
+                                        <tr>
+                                            <td class="fw-semibold">@item.Title</td>
+                                            <td>
+                                                @if (!string.IsNullOrWhiteSpace(item.CourseCode))
+                                                {
+                                                    <span class="badge bg-light text-dark border">@item.CourseCode</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted small">General</span>
+                                                }
+                                            </td>
+                                            @if (isAdmin && !kpis.ScopedStudentId.HasValue)
+                                            {
+                                                <td class="small">@item.StudentName</td>
+                                            }
+                                            <td>
+                                                <span class="badge bg-@(item.Priority == TaskPriority.High ? "danger" : item.Priority == TaskPriority.Medium ? "warning text-dark" : "info text-dark")">
+                                                    @item.Priority
+                                                </span>
+                                            </td>
+                                            <td class="small text-nowrap">@item.DueDate.ToString("MMM dd, yyyy")</td>
+                                            <td>
+                                                @if (item.IsOverdue)
+                                                {
+                                                    <span class="badge bg-danger">Overdue</span>
+                                                }
+                                                else if (item.IsDueSoon)
+                                                {
+                                                    <span class="badge bg-warning text-dark">Due Soon</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-secondary">@item.Status</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Row 3: Recent Notifications & Recent Academic Activity Feed -->
+        <div class="row g-4">
+            <div class="col-lg-5">
+                <div class="crm-card p-4 h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div>
+                            <h5 class="fw-bold mb-0">🔔 Recent Notifications</h5>
+                            <div class="text-muted small">@kpis.UnreadNotificationsCount unread alert(s)</div>
+                        </div>
+                        <a href="notifications" class="btn btn-sm btn-outline-primary">View All</a>
+                    </div>
+
+                    @if (_overview.RecentNotifications.Count == 0)
+                    {
+                        <div class="text-center text-muted py-4">
+                            No notifications found for the current filter selection.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="d-flex flex-column gap-2">
+                            @foreach (var notif in _overview.RecentNotifications)
+                            {
+                                <div class="p-3 rounded border @(notif.IsRead ? "bg-white" : "bg-primary-subtle border-primary-subtle")">
+                                    <div class="d-flex justify-content-between align-items-start gap-2">
+                                        <div class="fw-semibold small">@notif.Title</div>
+                                        <span class="badge @(notif.IsRead ? "bg-secondary" : "bg-primary")">
+                                            @(notif.IsRead ? "Read" : "Unread")
+                                        </span>
+                                    </div>
+                                    <div class="small text-muted mt-1">@notif.Message</div>
+                                    <div class="d-flex justify-content-between align-items-center mt-2 text-muted" style="font-size: 0.72rem;">
+                                        <span>@notif.Type</span>
+                                        <span>@notif.CreatedAt.ToString("MMM dd, HH:mm") UTC</span>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="col-lg-7">
+                <div class="crm-card p-4 h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div>
+                            <h5 class="fw-bold mb-0">⚡ Recent Academic Activity</h5>
+                            <div class="text-muted small">Latest grades posted, attendance sessions logged, and task milestones</div>
+                        </div>
+                        <a href="analytics" class="btn btn-sm btn-outline-secondary">Explore All Data</a>
+                    </div>
+
+                    @if (_overview.RecentActivity.Count == 0)
+                    {
+                        <div class="text-center text-muted py-4">
+                            No recent academic activity matches the selected filters.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="d-flex flex-column gap-2">
+                            @foreach (var act in _overview.RecentActivity.Take(7))
+                            {
+                                <div class="d-flex justify-content-between align-items-center p-2 px-3 rounded border bg-light-subtle">
+                                    <div class="d-flex align-items-center gap-3">
+                                        <span class="fs-5">
+                                            @(act.Category == "Grade" ? "🎓" : act.Category == "Task" ? "📝" : "✅")
+                                        </span>
+                                        <div>
+                                            <div class="fw-semibold small">@act.Title</div>
+                                            <div class="text-muted" style="font-size: 0.76rem;">@act.Subtitle</div>
+                                        </div>
+                                    </div>
+                                    <div class="text-end">
+                                        <span class="badge bg-@act.BadgeVariant">@act.BadgeText</span>
+                                        <div class="text-muted mt-1" style="font-size: 0.7rem;">@act.OccurredAt.ToString("MMM dd, yyyy")</div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
             </div>
         </div>
     }
 }
 
 @code {
-    private StudentDirectoryStatsDto? _stats;
+    private DashboardOverviewDto? _overview;
     private StudentDto? _myProfile;
-    private StudentGpaSummaryDto? _myGpa;
-    private StudentAttendanceStatsDto? _myAttendance;
-    private TaskSummaryStatsDto? _taskStats;
-    private int _myEnrollmentsCount;
-    private int _totalCoursesCount;
-    private int _totalTeachersCount;
-    private int _unreadNotificationsCount;
+    private List<CourseDto> _courseOptions = [];
+    private List<StudentDto> _studentOptions = [];
+    private List<string> _availableSemesters = [];
+
+    private string _selectedSemester = string.Empty;
+    private int? _selectedCourseId;
+    private int? _selectedStudentId;
+    private DateOnly? _dateFrom;
+    private DateOnly? _dateTo;
+
+    private bool _isLoading;
+    private string? _errorMessage;
+
+    private bool HasActiveFilters =>
+        !string.IsNullOrWhiteSpace(_selectedSemester) ||
+        _selectedCourseId.HasValue ||
+        _selectedStudentId.HasValue ||
+        _dateFrom.HasValue ||
+        _dateTo.HasValue;
 
     protected override async Task OnInitializedAsync()
     {
         AuthStateProvider.AuthenticationStateChanged += OnAuthStateChanged;
-        await LoadDashboardDataAsync();
+        await LoadFilterOptionsAndDashboardAsync();
     }
 
-    private async Task LoadDashboardDataAsync()
+    private async Task LoadFilterOptionsAndDashboardAsync()
     {
         var access = AuthStateProvider.GetAccessContext();
         if (!access.IsAuthenticated)
         {
-            _stats = null;
+            _overview = null;
             _myProfile = null;
-            _myGpa = null;
-            _myAttendance = null;
-            _taskStats = null;
-            _unreadNotificationsCount = 0;
             return;
         }
 
-        var statsResult = await StudentService.GetDirectoryStatsAsync(access);
-        if (statsResult.Succeeded)
+        _isLoading = true;
+        _errorMessage = null;
+
+        try
         {
-            _stats = statsResult.Data;
+            var coursesRes = await AcademicService.GetCoursesAsync(null, null, access);
+            _courseOptions = coursesRes.Succeeded && coursesRes.Data is not null
+                ? coursesRes.Data.ToList()
+                : [];
+
+            if (access.IsAdmin)
+            {
+                var studentsRes = await StudentService.GetStudentsAsync(null, access);
+                _studentOptions = studentsRes.Succeeded && studentsRes.Data is not null
+                    ? studentsRes.Data.ToList()
+                    : [];
+            }
+            else if (access.UserId.HasValue)
+            {
+                var profileResult = await StudentService.GetStudentByUserIdAsync(access.UserId.Value, access);
+                _myProfile = profileResult.Succeeded ? profileResult.Data : null;
+            }
+
+            await RefreshOverviewAsync(access);
         }
-
-        var coursesRes = await AcademicService.GetCoursesAsync(null, null, access);
-        _totalCoursesCount = coursesRes.Succeeded && coursesRes.Data is not null ? coursesRes.Data.Count : 0;
-
-        var teachersRes = await AcademicService.GetTeachersAsync(access);
-        _totalTeachersCount = teachersRes.Succeeded && teachersRes.Data is not null ? teachersRes.Data.Count : 0;
-
-        var taskStatsRes = await TaskService.GetTaskSummaryStatsAsync(access.StudentId, access);
-        _taskStats = taskStatsRes.Succeeded ? taskStatsRes.Data : null;
-
-        var unreadRes = await TaskService.GetUnreadCountAsync(access.StudentId, access);
-        _unreadNotificationsCount = unreadRes.Succeeded ? unreadRes.Data : 0;
-
-        if (access.UserId.HasValue)
+        catch (Exception ex)
         {
-            var profileResult = await StudentService.GetStudentByUserIdAsync(access.UserId.Value, access);
-            _myProfile = profileResult.Succeeded ? profileResult.Data : null;
+            _errorMessage = $"Failed to load dashboard data: {ex.Message}";
         }
-
-        if (access.StudentId.HasValue)
+        finally
         {
-            var sid = access.StudentId.Value;
+            _isLoading = false;
+        }
+    }
 
-            var gpaRes = await AcademicService.GetStudentGpaSummaryAsync(sid, access);
-            _myGpa = gpaRes.Succeeded ? gpaRes.Data : null;
+    private async Task RefreshOverviewAsync(AccessContext access)
+    {
+        var filter = new DashboardFilterDto
+        {
+            StudentId = access.IsAdmin ? _selectedStudentId : access.StudentId,
+            CourseId = _selectedCourseId,
+            Semester = string.IsNullOrWhiteSpace(_selectedSemester) ? null : _selectedSemester,
+            DateFrom = _dateFrom,
+            DateTo = _dateTo
+        };
 
-            var attRes = await AcademicService.GetStudentAttendanceStatsAsync(sid, access);
-            _myAttendance = attRes.Succeeded ? attRes.Data : null;
-
-            var enrRes = await AcademicService.GetEnrollmentsAsync(sid, null, access);
-            _myEnrollmentsCount = enrRes.Succeeded && enrRes.Data is not null
-                ? enrRes.Data.Count(e => e.Status == EnrollmentStatus.Enrolled)
-                : 0;
+        var result = await AnalyticsService.GetDashboardOverviewAsync(filter, access);
+        if (result.Succeeded && result.Data is not null)
+        {
+            _overview = result.Data;
+            if (_availableSemesters.Count == 0 && result.Data.AvailableSemesters.Count > 0)
+            {
+                _availableSemesters = result.Data.AvailableSemesters.ToList();
+            }
         }
         else
         {
-            _myGpa = null;
-            _myAttendance = null;
+            _errorMessage = string.Join(" ", result.Errors);
         }
+    }
+
+    private async Task ApplyFiltersAsync()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        if (!access.IsAuthenticated)
+        {
+            return;
+        }
+
+        _isLoading = true;
+        _errorMessage = null;
+        try
+        {
+            await RefreshOverviewAsync(access);
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task ResetFiltersAsync()
+    {
+        _selectedSemester = string.Empty;
+        _selectedCourseId = null;
+        _selectedStudentId = null;
+        _dateFrom = null;
+        _dateTo = null;
+        await ApplyFiltersAsync();
     }
 
     private async Task QuickSignInAsync(string email, string password)
@@ -308,7 +880,7 @@ else
         if (result.Succeeded && result.Data is not null)
         {
             await AuthStateProvider.SignInAsync(result.Data);
-            await LoadDashboardDataAsync();
+            await LoadFilterOptionsAndDashboardAsync();
         }
     }
 
@@ -316,7 +888,7 @@ else
     {
         _ = InvokeAsync(async () =>
         {
-            await LoadDashboardDataAsync();
+            await LoadFilterOptionsAndDashboardAsync();
             StateHasChanged();
         });
     }

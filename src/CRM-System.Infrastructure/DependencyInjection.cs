@@ -1,11 +1,14 @@
 using CRM_System.Core.Academic.Interfaces;
 using CRM_System.Core.Academic.Models;
 using CRM_System.Core.Academic.Services;
+using CRM_System.Core.Dashboard.Interfaces;
+using CRM_System.Core.Dashboard.Services;
 using CRM_System.Core.Students.Interfaces;
 using CRM_System.Core.Students.Services;
 using CRM_System.Core.Tasks.Interfaces;
 using CRM_System.Core.Tasks.Services;
 using CRM_System.Infrastructure.Academic;
+using CRM_System.Infrastructure.Dashboard;
 using CRM_System.Infrastructure.Data;
 using CRM_System.Infrastructure.Students;
 using CRM_System.Infrastructure.Tasks;
@@ -59,6 +62,10 @@ public static class DependencyInjection
         // Stage 3: Tasks & Notifications
         services.AddScoped<ITaskNotificationRepository, TaskNotificationRepository>();
         services.AddScoped<ITaskNotificationService, TaskNotificationService>();
+
+        // Stage 4: Dashboard & Analytics
+        services.AddScoped<IDashboardAnalyticsRepository, DashboardAnalyticsRepository>();
+        services.AddScoped<IDashboardAnalyticsService, DashboardAnalyticsService>();
 
         return services;
     }

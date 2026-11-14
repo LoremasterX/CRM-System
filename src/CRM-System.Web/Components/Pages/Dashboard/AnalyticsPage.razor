@@ -1,0 +1,899 @@
+@page "/analytics"
+@page "/dashboard/analytics"
+@implements IDisposable
+@inject CrmAuthStateProvider AuthStateProvider
+@inject IStudentService StudentService
+@inject IAcademicService AcademicService
+@inject IDashboardAnalyticsService AnalyticsService
+
+<PageTitle>Analytics Explorer — Student CRM</PageTitle>
+
+@if (AuthStateProvider.CurrentUser is null)
+{
+    <div class="crm-card p-5 text-center">
+        <div class="fs-1 mb-2">🔒</div>
+        <h4 class="fw-bold">Authentication Required</h4>
+        <p class="text-muted mb-3">Please sign in to access academic, attendance, and productivity analytics.</p>
+        <a href="login" class="btn btn-primary px-4">Sign In</a>
+    </div>
+}
+else
+{
+    var user = AuthStateProvider.CurrentUser;
+    var isAdmin = string.Equals(user.Role, UserRoles.Admin, StringComparison.OrdinalIgnoreCase);
+
+    <div class="crm-page-header">
+        <div>
+            <h1 class="crm-page-title">📉 Academic, Attendance &amp; Productivity Analytics</h1>
+            <p class="crm-page-subtitle">
+                @if (isAdmin && !_selectedStudentId.HasValue)
+                {
+                    <span>University-wide aggregated analytics across students, courses, attendance sessions, and tasks</span>
+                }
+                else if (_overview?.Kpis.ScopedStudentName is { Length: > 0 } scopedName)
+                {
+                    <span>Student-scoped analytics for <strong>@scopedName</strong></span>
+                }
+                else
+                {
+                    <span>Personal academic progress, attendance rates, and task completion analytics</span>
+                }
+            </p>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <a href="" class="btn btn-outline-primary">📊 Main Dashboard</a>
+            <a href="academic-performance" class="btn btn-outline-secondary">Grades &amp; GPA</a>
+            <a href="attendance" class="btn btn-outline-secondary">Attendance</a>
+            <a href="tasks" class="btn btn-outline-secondary">Tasks</a>
+        </div>
+    </div>
+
+    <!-- Multi-Dimensional Analytics Filter Bar -->
+    <div class="crm-card p-3 mb-4">
+        <div class="row g-2 align-items-end">
+            <div class="col-sm-6 col-lg-2">
+                <label class="form-label small fw-semibold text-muted mb-1">Academic Period</label>
+                <select class="form-select form-select-sm" @bind="_selectedSemester">
+                    <option value="">All Semesters</option>
+                    @foreach (var sem in _availableSemesters)
+                    {
+                        <option value="@sem">@sem</option>
+                    }
+                </select>
+            </div>
+
+            <div class="col-sm-6 col-lg-3">
+                <label class="form-label small fw-semibold text-muted mb-1">Course Filter</label>
+                <select class="form-select form-select-sm" @bind="_selectedCourseId">
+                    <option value="">All Courses</option>
+                    @foreach (var course in _courseOptions)
+                    {
+                        <option value="@course.Id">@course.CourseCode — @course.Title</option>
+                    }
+                </select>
+            </div>
+
+            @if (isAdmin)
+            {
+                <div class="col-sm-6 col-lg-3">
+                    <label class="form-label small fw-semibold text-muted mb-1">Student Filter</label>
+                    <select class="form-select form-select-sm" @bind="_selectedStudentId">
+                        <option value="">All Students (Aggregated)</option>
+                        @foreach (var st in _studentOptions)
+                        {
+                            <option value="@st.Id">@st.FullName (@st.StudentNumber)</option>
+                        }
+                    </select>
+                </div>
+            }
+
+            <div class="col-sm-6 col-lg-2">
+                <label class="form-label small fw-semibold text-muted mb-1">Date From</label>
+                <input type="date" class="form-control form-control-sm" @bind="_dateFrom" />
+            </div>
+
+            <div class="col-sm-6 col-lg-2">
+                <label class="form-label small fw-semibold text-muted mb-1">Date To</label>
+                <input type="date" class="form-control form-control-sm" @bind="_dateTo" />
+            </div>
+
+            <div class="col-12 d-flex flex-wrap justify-content-between align-items-center gap-2 pt-2 border-top mt-2">
+                <div class="d-flex flex-wrap gap-1 align-items-center">
+                    <span class="small text-muted me-1">Quick Presets:</span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" @onclick="SetFall2026PresetAsync">Fall 2026</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" @onclick="SetLast30DaysPresetAsync">Last 30 Days</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" @onclick="ResetFiltersAsync">All Time</button>
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-primary px-3" @onclick="ApplyFiltersAsync" disabled="@_isLoading">
+                        Apply Filters
+                    </button>
+                    @if (HasActiveFilters)
+                    {
+                        <button type="button" class="btn btn-sm btn-outline-danger" @onclick="ResetFiltersAsync" disabled="@_isLoading">
+                            Clear Filters
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Section Switcher Tabs -->
+    <ul class="nav nav-pills mb-4 gap-2">
+        <li class="nav-item">
+            <button type="button" class="nav-link @(_activeTab == "all" ? "active" : "bg-white border")" @onclick='() => _activeTab = "all"'>
+                🌐 All Analytics
+            </button>
+        </li>
+        <li class="nav-item">
+            <button type="button" class="nav-link @(_activeTab == "academic" ? "active" : "bg-white border")" @onclick='() => _activeTab = "academic"'>
+                🎓 Academic &amp; GPA
+            </button>
+        </li>
+        <li class="nav-item">
+            <button type="button" class="nav-link @(_activeTab == "attendance" ? "active" : "bg-white border")" @onclick='() => _activeTab = "attendance"'>
+                ✅ Attendance
+            </button>
+        </li>
+        <li class="nav-item">
+            <button type="button" class="nav-link @(_activeTab == "tasks" ? "active" : "bg-white border")" @onclick='() => _activeTab = "tasks"'>
+                📝 Tasks &amp; Productivity
+            </button>
+        </li>
+    </ul>
+
+    @if (!string.IsNullOrWhiteSpace(_errorMessage))
+    {
+        <div class="alert alert-danger d-flex justify-content-between align-items-center mb-4">
+            <span>@_errorMessage</span>
+            <button type="button" class="btn-close" @onclick="() => _errorMessage = null"></button>
+        </div>
+    }
+
+    @if (_isLoading)
+    {
+        <div class="crm-card p-5 text-center">
+            <div class="spinner-border text-primary mb-3" role="status"></div>
+            <div class="fw-semibold">Calculating analytics...</div>
+        </div>
+    }
+    else if (_overview is not null)
+    {
+        var academic = _overview.AcademicAnalytics;
+        var attendance = _overview.AttendanceAnalytics;
+        var tasks = _overview.TaskAnalytics;
+
+        <!-- ================================================================== -->
+        <!-- SECTION B: ACADEMIC ANALYTICS                                      -->
+        <!-- ================================================================== -->
+        @if (_activeTab is "all" or "academic")
+        {
+            <div class="mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h4 class="fw-bold mb-0">🎓 Academic &amp; GPA Analytics</h4>
+                    <span class="badge bg-primary-subtle text-primary border px-3 py-2">
+                        Scale: @academic.MaxGpaPoints.ToString("F1") Max GPA
+                    </span>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-sm-6 col-xl-3">
+                        <StatCard Title="Average GPA"
+                                  Value="@($"{academic.AverageGpa:F2} / {academic.MaxGpaPoints:F1}")"
+                                  Subtitle="@($"Median GPA: {academic.MedianGpa:F2}")"
+                                  Icon="📊"
+                                  Variant="primary" />
+                    </div>
+                    <div class="col-sm-6 col-xl-3">
+                        <StatCard Title="GPA Range (Min – Max)"
+                                  Value="@($"{academic.LowestGpa:F2} – {academic.HighestGpa:F2}")"
+                                  Subtitle="@($"{academic.TotalGradedStudents} graded student(s)")"
+                                  Icon="🏅"
+                                  Variant="success" />
+                    </div>
+                    <div class="col-sm-6 col-xl-3">
+                        <StatCard Title="Overall Score &amp; Pass Rate"
+                                  Value="@($"{academic.OverallAverageScorePercentage:F1}%")"
+                                  Subtitle="@($"Pass Rate: {academic.ProgressOverview.PassingAssessmentsPercentage:F1}% ({academic.TotalAssessmentsCount} assessments)")"
+                                  Icon="📈"
+                                  Variant="info" />
+                    </div>
+                    <div class="col-sm-6 col-xl-3">
+                        <StatCard Title="Academic Progress"
+                                  Value="@($"{academic.ProgressOverview.TotalCreditsEarned} / {academic.ProgressOverview.TotalCreditsEnrolled} Cr")"
+                                  Subtitle="@($"{academic.ProgressOverview.CreditCompletionPercentage:F1}% credit completion")"
+                                  Icon="🎯"
+                                  Variant="warning" />
+                    </div>
+                </div>
+
+                <!-- Highest & Lowest Academic Performance Spotlights -->
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6 col-xl-3">
+                        <div class="crm-card p-3 h-100 border-start border-4 border-success">
+                            <div class="small text-success fw-bold text-uppercase">🏅 Highest Student GPA</div>
+                            @if (academic.HighestPerformer is not null)
+                            {
+                                <div class="fw-bold fs-6 mt-1">@academic.HighestPerformer.StudentName</div>
+                                <div class="small text-muted">@academic.HighestPerformer.StudentNumber • @academic.HighestPerformer.StudyProgram</div>
+                                <div class="mt-2">
+                                    <span class="badge bg-success">GPA @academic.HighestPerformer.CumulativeGpa.ToString("F2")</span>
+                                    <span class="badge bg-light text-dark border ms-1">Avg @academic.HighestPerformer.OverallAveragePercentage.ToString("F1")%</span>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="text-muted small mt-2">No graded students in current filter</div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="col-md-6 col-xl-3">
+                        <div class="crm-card p-3 h-100 border-start border-4 border-warning">
+                            <div class="small text-warning-emphasis fw-bold text-uppercase">📌 Lowest Student GPA</div>
+                            @if (academic.LowestPerformer is not null)
+                            {
+                                <div class="fw-bold fs-6 mt-1">@academic.LowestPerformer.StudentName</div>
+                                <div class="small text-muted">@academic.LowestPerformer.StudentNumber • @academic.LowestPerformer.StudyProgram</div>
+                                <div class="mt-2">
+                                    <span class="badge bg-@academic.LowestPerformer.StandingVariant">GPA @academic.LowestPerformer.CumulativeGpa.ToString("F2")</span>
+                                    <span class="badge bg-light text-dark border ms-1">Avg @academic.LowestPerformer.OverallAveragePercentage.ToString("F1")%</span>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="text-muted small mt-2">No graded students in current filter</div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="col-md-6 col-xl-3">
+                        <div class="crm-card p-3 h-100 border-start border-4 border-primary">
+                            <div class="small text-primary fw-bold text-uppercase">📘 Highest Course Performance</div>
+                            @if (academic.TopPerformingCourse is not null)
+                            {
+                                <div class="fw-bold fs-6 mt-1">@academic.TopPerformingCourse.CourseCode — @academic.TopPerformingCourse.CourseTitle</div>
+                                <div class="small text-muted">@(academic.TopPerformingCourse.TeacherName ?? "Faculty") • @academic.TopPerformingCourse.Credits Cr</div>
+                                <div class="mt-2">
+                                    <span class="badge bg-primary">Avg @academic.TopPerformingCourse.AverageScorePercentage.ToString("F1")% (@academic.TopPerformingCourse.LetterGrade)</span>
+                                    <span class="badge bg-light text-dark border ms-1">Pass @academic.TopPerformingCourse.PassRatePercentage.ToString("F0")%</span>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="text-muted small mt-2">No graded courses in current filter</div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="col-md-6 col-xl-3">
+                        <div class="crm-card p-3 h-100 border-start border-4 border-danger">
+                            <div class="small text-danger fw-bold text-uppercase">📉 Lowest Course Performance</div>
+                            @if (academic.LowestPerformingCourse is not null)
+                            {
+                                <div class="fw-bold fs-6 mt-1">@academic.LowestPerformingCourse.CourseCode — @academic.LowestPerformingCourse.CourseTitle</div>
+                                <div class="small text-muted">@(academic.LowestPerformingCourse.TeacherName ?? "Faculty") • @academic.LowestPerformingCourse.Credits Cr</div>
+                                <div class="mt-2">
+                                    <span class="badge bg-secondary">Avg @academic.LowestPerformingCourse.AverageScorePercentage.ToString("F1")% (@academic.LowestPerformingCourse.LetterGrade)</span>
+                                    <span class="badge bg-light text-dark border ms-1">Pass @academic.LowestPerformingCourse.PassRatePercentage.ToString("F0")%</span>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="text-muted small mt-2">No graded courses in current filter</div>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Visual GPA & Grade Distribution Charts -->
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="crm-card p-4 h-100">
+                            <h6 class="fw-bold mb-3">GPA Distribution Across Students</h6>
+                            @foreach (var bucket in academic.GpaDistribution)
+                            {
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between small mb-1">
+                                        <span><strong>@bucket.Label</strong> — @bucket.RangeDescription</span>
+                                        <span class="fw-semibold">@bucket.StudentCount student(s) (@bucket.PercentageOfStudents.ToString("F1")%)</span>
+                                    </div>
+                                    <div class="progress" style="height: 10px;">
+                                        <div class="progress-bar bg-@bucket.ColorVariant"
+                                             style="width: @(Math.Max(bucket.StudentCount > 0 ? 4m : 0m, bucket.PercentageOfStudents))%"></div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="col-lg-6">
+                        <div class="crm-card p-4 h-100">
+                            <h6 class="fw-bold mb-3">Assessment Letter Grade Distribution</h6>
+                            @foreach (var gradeBand in academic.GradeDistribution)
+                            {
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between small mb-1">
+                                        <span><strong>Grade @gradeBand.LetterGrade</strong> (@gradeBand.Description • @gradeBand.GradePoints.ToString("F1") pts)</span>
+                                        <span class="fw-semibold">@gradeBand.AssessmentCount assessment(s) (@gradeBand.PercentageOfAssessments.ToString("F1")%)</span>
+                                    </div>
+                                    <div class="progress" style="height: 10px;">
+                                        <div class="progress-bar bg-@gradeBand.ColorVariant"
+                                             style="width: @(Math.Max(gradeBand.AssessmentCount > 0 ? 4m : 0m, gradeBand.PercentageOfAssessments))%"></div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Course Performance Table -->
+                <div class="crm-card p-4 mb-3">
+                    <h6 class="fw-bold mb-3">📚 Course Performance Analytics</h6>
+                    @if (academic.CoursePerformances.Count == 0)
+                    {
+                        <div class="text-muted text-center py-3">No courses match the selected filters.</div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Course</th>
+                                        <th>Semester</th>
+                                        <th>Instructor</th>
+                                        <th class="text-center">Credits</th>
+                                        <th class="text-center">Enrolled</th>
+                                        <th class="text-center">Assessments</th>
+                                        <th class="text-end">Avg Score</th>
+                                        <th class="text-center">Grade</th>
+                                        <th class="text-end">Pass Rate</th>
+                                        <th class="text-end">Attendance</th>
+                                        <th class="text-center">Tasks Done</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var c in academic.CoursePerformances)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <div class="fw-bold">@c.CourseCode</div>
+                                                <div class="small text-muted">@c.CourseTitle</div>
+                                            </td>
+                                            <td class="small">@c.Semester</td>
+                                            <td class="small">@(c.TeacherName ?? "Unassigned")</td>
+                                            <td class="text-center">@c.Credits</td>
+                                            <td class="text-center">@c.EnrolledStudentsCount</td>
+                                            <td class="text-center">@c.GradedAssessmentsCount</td>
+                                            <td class="text-end fw-semibold">@(c.GradedAssessmentsCount > 0 ? $"{c.AverageScorePercentage:F1}%" : "—")</td>
+                                            <td class="text-center">
+                                                <span class="badge bg-@(c.AverageGradePoints >= 3.0m ? "success" : c.AverageGradePoints >= 2.0m ? "primary" : c.GradedAssessmentsCount > 0 ? "danger" : "secondary")">
+                                                    @c.LetterGrade
+                                                </span>
+                                            </td>
+                                            <td class="text-end">@(c.GradedAssessmentsCount > 0 ? $"{c.PassRatePercentage:F0}%" : "—")</td>
+                                            <td class="text-end">@c.AttendanceRatePercentage.ToString("F1")%</td>
+                                            <td class="text-center">@c.CompletedTasksCount / @c.TotalTasksCount</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+
+                <!-- Student Academic Performance Table -->
+                <div class="crm-card p-4">
+                    <h6 class="fw-bold mb-3">🎓 Student Academic Performance &amp; Standing</h6>
+                    @if (academic.StudentPerformances.Count == 0)
+                    {
+                        <div class="text-muted text-center py-3">No student records match the selected filters.</div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Student</th>
+                                        <th>Program &amp; Year</th>
+                                        <th class="text-center">Enrolled</th>
+                                        <th class="text-center">Graded</th>
+                                        <th class="text-center">Credits Earned</th>
+                                        <th class="text-end">Avg Score</th>
+                                        <th class="text-end">Cumulative GPA</th>
+                                        <th>Academic Standing</th>
+                                        <th class="text-end">Attendance</th>
+                                        <th class="text-center">Tasks (Done / Overdue)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @{ var rank = 1; }
+                                    @foreach (var s in academic.StudentPerformances)
+                                    {
+                                        <tr>
+                                            <td class="text-muted fw-semibold">@(rank++)</td>
+                                            <td>
+                                                <div class="fw-bold">@s.StudentName</div>
+                                                <div class="small text-muted">@s.StudentNumber</div>
+                                            </td>
+                                            <td class="small">@s.StudyProgram (Yr @s.StudyYear)</td>
+                                            <td class="text-center">@s.EnrolledCoursesCount</td>
+                                            <td class="text-center">@s.GradedCoursesCount</td>
+                                            <td class="text-center">@s.TotalCreditsEarned</td>
+                                            <td class="text-end">@s.OverallAveragePercentage.ToString("F1")%</td>
+                                            <td class="text-end fw-bold">@s.CumulativeGpa.ToString("F2")</td>
+                                            <td>
+                                                <span class="badge bg-@s.StandingVariant">@s.StandingLabel</span>
+                                            </td>
+                                            <td class="text-end">@s.AttendanceRatePercentage.ToString("F1")%</td>
+                                            <td class="text-center">
+                                                <span class="text-success fw-semibold">@s.CompletedTasksCount</span> /
+                                                <span class="@(s.OverdueTasksCount > 0 ? "text-danger fw-bold" : "text-muted")">@s.OverdueTasksCount</span>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- ================================================================== -->
+        <!-- SECTION C: ATTENDANCE ANALYTICS                                    -->
+        <!-- ================================================================== -->
+        @if (_activeTab is "all" or "attendance")
+        {
+            <div class="mb-4">
+                <h4 class="fw-bold mb-3">✅ Attendance Analytics</h4>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-sm-6 col-xl-3">
+                        <StatCard Title="Overall Attendance"
+                                  Value="@($"{attendance.OverallAttendancePercentage:F1}%")"
+                                  Subtitle="@($"Strict Present: {attendance.StrictPresentPercentage:F1}%")"
+                                  Icon="✅"
+                                  Variant="success" />
+                    </div>
+                    <div class="col-sm-6 col-xl-3">
+                        <StatCard Title="Present Sessions"
+                                  Value="@attendance.PresentCount.ToString()"
+                                  Subtitle="@($"Out of {attendance.TotalSessions} total sessions")"
+                                  Icon="🟢"
+                                  Variant="primary" />
+                    </div>
+                    <div class="col-sm-6 col-xl-3">
+                        <StatCard Title="Late Arrivals"
+                                  Value="@attendance.LateCount.ToString()"
+                                  Subtitle="Weighted at 50% attendance credit"
+                                  Icon="🟡"
+                                  Variant="warning" />
+                    </div>
+                    <div class="col-sm-6 col-xl-3">
+                        <StatCard Title="Absences &amp; At-Risk"
+                                  Value="@($"{attendance.AbsentCount} Absent")"
+                                  Subtitle="@($"{attendance.AtRiskStudentsCount} student(s) below 75% rate")"
+                                  Icon="🔴"
+                                  Variant="danger" />
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-5">
+                        <div class="crm-card p-4 h-100">
+                            <h6 class="fw-bold mb-3">Present / Late / Absent Distribution</h6>
+                            @foreach (var slice in attendance.StatusDistribution)
+                            {
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between small mb-1">
+                                        <span class="fw-semibold">@slice.Label</span>
+                                        <span>@slice.Count session(s) (@slice.Percentage.ToString("F1")%)</span>
+                                    </div>
+                                    <div class="progress" style="height: 12px;">
+                                        <div class="progress-bar bg-@slice.ColorVariant"
+                                             style="width: @(Math.Max(slice.Count > 0 ? 4m : 0m, slice.Percentage))%"></div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="col-lg-7">
+                        <div class="crm-card p-4 h-100">
+                            <h6 class="fw-bold mb-3">Chronological Attendance Trend</h6>
+                            @if (attendance.AttendanceTrends.Count == 0)
+                            {
+                                <div class="text-muted text-center py-4">No attendance sessions recorded in this period.</div>
+                            }
+                            else
+                            {
+                                <div class="d-flex align-items-end gap-2 pt-3 pb-2 px-3 rounded bg-light border" style="height: 150px; overflow-x: auto;">
+                                    @foreach (var pt in attendance.AttendanceTrends)
+                                    {
+                                        var barColor = pt.AttendanceRatePercentage >= 85m ? "#198754" : pt.AttendanceRatePercentage >= 70m ? "#0d6efd" : "#dc3545";
+                                        <div class="d-flex flex-column align-items-center flex-fill" style="min-width: 52px;">
+                                            <div class="small fw-bold" style="font-size: 0.72rem;">@pt.AttendanceRatePercentage.ToString("F0")%</div>
+                                            <div class="w-100 rounded-top"
+                                                 style="height: @(Math.Max(8, (int)(pt.AttendanceRatePercentage * 0.85m)))px; background: @barColor;"
+                                                 title="@pt.PeriodLabel: @pt.AttendanceRatePercentage% (@pt.PresentCount Present, @pt.LateCount Late, @pt.AbsentCount Absent)"></div>
+                                            <div class="text-muted mt-1 text-nowrap" style="font-size: 0.7rem;">@pt.PeriodLabel</div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-3">
+                    <div class="col-lg-6">
+                        <div class="crm-card p-4 h-100">
+                            <h6 class="fw-bold mb-3">Attendance Statistics by Course</h6>
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Course</th>
+                                            <th class="text-center">Sessions</th>
+                                            <th class="text-center">P / L / A</th>
+                                            <th class="text-end">Rate</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var cs in attendance.CourseStatistics)
+                                        {
+                                            <tr>
+                                                <td>
+                                                    <div class="fw-semibold">@cs.CourseCode</div>
+                                                    <div class="small text-muted">@cs.CourseTitle</div>
+                                                </td>
+                                                <td class="text-center">@cs.TotalSessions</td>
+                                                <td class="text-center small">
+                                                    <span class="text-success fw-semibold">@cs.PresentCount</span> /
+                                                    <span class="text-warning-emphasis fw-semibold">@cs.LateCount</span> /
+                                                    <span class="text-danger fw-semibold">@cs.AbsentCount</span>
+                                                </td>
+                                                <td class="text-end">
+                                                    <span class="badge bg-@(cs.AttendanceRatePercentage >= 80m ? "success" : cs.AttendanceRatePercentage >= 65m ? "warning text-dark" : cs.TotalSessions > 0 ? "danger" : "secondary")">
+                                                        @(cs.TotalSessions > 0 ? $"{cs.AttendanceRatePercentage:F1}%" : "N/A")
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-lg-6">
+                        <div class="crm-card p-4 h-100">
+                            <h6 class="fw-bold mb-3">Attendance Statistics by Student</h6>
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Student</th>
+                                            <th class="text-center">Sessions</th>
+                                            <th class="text-center">P / L / A</th>
+                                            <th class="text-end">Rate</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var ss in attendance.StudentStatistics)
+                                        {
+                                            <tr>
+                                                <td>
+                                                    <div class="fw-semibold">@ss.StudentName</div>
+                                                    <div class="small text-muted">@ss.StudentNumber</div>
+                                                </td>
+                                                <td class="text-center">@ss.TotalSessions</td>
+                                                <td class="text-center small">
+                                                    <span class="text-success fw-semibold">@ss.PresentCount</span> /
+                                                    <span class="text-warning-emphasis fw-semibold">@ss.LateCount</span> /
+                                                    <span class="text-danger fw-semibold">@ss.AbsentCount</span>
+                                                </td>
+                                                <td class="text-end">
+                                                    <span class="badge bg-@(ss.IsAtRisk ? "danger" : ss.AttendanceRatePercentage >= 85m ? "success" : ss.TotalSessions > 0 ? "primary" : "secondary")">
+                                                        @(ss.TotalSessions > 0 ? $"{ss.AttendanceRatePercentage:F1}%" : "N/A")
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- ================================================================== -->
+        <!-- SECTION D: TASKS & PRODUCTIVITY ANALYTICS                          -->
+        <!-- ================================================================== -->
+        @if (_activeTab is "all" or "tasks")
+        {
+            <div class="mb-4">
+                <h4 class="fw-bold mb-3">📝 Tasks &amp; Productivity Analytics</h4>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-sm-6 col-xl-3">
+                        <StatCard Title="Total Tasks"
+                                  Value="@tasks.TotalTasks.ToString()"
+                                  Subtitle="@($"Avg {tasks.AverageTasksPerStudent:F1} tasks per student")"
+                                  Icon="📋"
+                                  Variant="primary" />
+                    </div>
+                    <div class="col-sm-6 col-xl-3">
+                        <StatCard Title="Completed Tasks"
+                                  Value="@tasks.CompletedTasks.ToString()"
+                                  Subtitle="@($"Completion Rate: {tasks.CompletionRatePercentage:F1}%")"
+                                  Icon="✅"
+                                  Variant="success" />
+                    </div>
+                    <div class="col-sm-6 col-xl-3">
+                        <StatCard Title="Pending &amp; In Progress"
+                                  Value="@($"{tasks.PendingTasks + tasks.InProgressTasks}")"
+                                  Subtitle="@($"{tasks.PendingTasks} Pending • {tasks.InProgressTasks} In Progress")"
+                                  Icon="⏳"
+                                  Variant="info" />
+                    </div>
+                    <div class="col-sm-6 col-xl-3">
+                        <StatCard Title="Overdue &amp; Due Soon"
+                                  Value="@($"{tasks.OverdueTasks} Overdue")"
+                                  Subtitle="@($"{tasks.DueSoonTasks} due within next 48 hours")"
+                                  Icon="⚠️"
+                                  Variant="danger" />
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="crm-card p-4 h-100">
+                            <h6 class="fw-bold mb-3">Tasks Grouped by Priority</h6>
+                            @foreach (var p in tasks.PriorityBreakdown)
+                            {
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between small mb-1">
+                                        <span>
+                                            <span class="badge bg-@p.ColorVariant me-1">@p.Label</span>
+                                            <span class="text-muted">(@p.CompletedCount done, @p.PendingCount pending, @p.InProgressCount in progress, @p.OverdueCount overdue)</span>
+                                        </span>
+                                        <span class="fw-semibold">@p.TotalCount (@p.CompletionRatePercentage.ToString("F0")% done)</span>
+                                    </div>
+                                    <div class="progress" style="height: 10px;">
+                                        <div class="progress-bar bg-@p.ColorVariant"
+                                             style="width: @(Math.Max(p.TotalCount > 0 ? 4m : 0m, p.PercentageOfTotal))%"></div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="col-lg-6">
+                        <div class="crm-card p-4 h-100">
+                            <h6 class="fw-bold mb-3">Tasks Grouped by Effective Status</h6>
+                            @foreach (var st in tasks.StatusBreakdown)
+                            {
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between small mb-1">
+                                        <span class="fw-semibold">@st.Label</span>
+                                        <span>@st.Count task(s) (@st.Percentage.ToString("F1")%)</span>
+                                    </div>
+                                    <div class="progress" style="height: 10px;">
+                                        <div class="progress-bar bg-@st.ColorVariant"
+                                             style="width: @(Math.Max(st.Count > 0 ? 4m : 0m, st.Percentage))%"></div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <div class="crm-card p-4">
+                    <h6 class="fw-bold mb-3">Task Completion Statistics by Course</h6>
+                    @if (tasks.CourseBreakdown.Count == 0)
+                    {
+                        <div class="text-muted text-center py-3">No tasks match the selected filter criteria.</div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Course</th>
+                                        <th class="text-center">Total Tasks</th>
+                                        <th class="text-center">Completed</th>
+                                        <th class="text-center">In Progress</th>
+                                        <th class="text-center">Pending</th>
+                                        <th class="text-center">Overdue</th>
+                                        <th class="text-end">Completion Rate</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var cb in tasks.CourseBreakdown)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <div class="fw-semibold">@cb.CourseCode</div>
+                                                <div class="small text-muted">@cb.CourseTitle</div>
+                                            </td>
+                                            <td class="text-center">@cb.TotalTasks</td>
+                                            <td class="text-center text-success fw-semibold">@cb.CompletedTasks</td>
+                                            <td class="text-center text-primary">@cb.InProgressTasks</td>
+                                            <td class="text-center text-muted">@cb.PendingTasks</td>
+                                            <td class="text-center @(cb.OverdueTasks > 0 ? "text-danger fw-bold" : "text-muted")">@cb.OverdueTasks</td>
+                                            <td class="text-end fw-semibold">@cb.CompletionRatePercentage.ToString("F1")%</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+}
+
+@code {
+    private DashboardOverviewDto? _overview;
+    private List<CourseDto> _courseOptions = [];
+    private List<StudentDto> _studentOptions = [];
+    private List<string> _availableSemesters = [];
+
+    private string _activeTab = "all";
+    private string _selectedSemester = string.Empty;
+    private int? _selectedCourseId;
+    private int? _selectedStudentId;
+    private DateOnly? _dateFrom;
+    private DateOnly? _dateTo;
+
+    private bool _isLoading;
+    private string? _errorMessage;
+
+    private bool HasActiveFilters =>
+        !string.IsNullOrWhiteSpace(_selectedSemester) ||
+        _selectedCourseId.HasValue ||
+        _selectedStudentId.HasValue ||
+        _dateFrom.HasValue ||
+        _dateTo.HasValue;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthStateProvider.AuthenticationStateChanged += OnAuthStateChanged;
+        await LoadAnalyticsAsync();
+    }
+
+    private async Task LoadAnalyticsAsync()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        if (!access.IsAuthenticated)
+        {
+            _overview = null;
+            return;
+        }
+
+        _isLoading = true;
+        _errorMessage = null;
+
+        try
+        {
+            var coursesRes = await AcademicService.GetCoursesAsync(null, null, access);
+            _courseOptions = coursesRes.Succeeded && coursesRes.Data is not null
+                ? coursesRes.Data.ToList()
+                : [];
+
+            if (access.IsAdmin)
+            {
+                var studentsRes = await StudentService.GetStudentsAsync(null, access);
+                _studentOptions = studentsRes.Succeeded && studentsRes.Data is not null
+                    ? studentsRes.Data.ToList()
+                    : [];
+            }
+
+            await RefreshDataAsync(access);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to load analytics: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task RefreshDataAsync(AccessContext access)
+    {
+        var filter = new DashboardFilterDto
+        {
+            StudentId = access.IsAdmin ? _selectedStudentId : access.StudentId,
+            CourseId = _selectedCourseId,
+            Semester = string.IsNullOrWhiteSpace(_selectedSemester) ? null : _selectedSemester,
+            DateFrom = _dateFrom,
+            DateTo = _dateTo
+        };
+
+        var result = await AnalyticsService.GetDashboardOverviewAsync(filter, access);
+        if (result.Succeeded && result.Data is not null)
+        {
+            _overview = result.Data;
+            if (_availableSemesters.Count == 0 && result.Data.AvailableSemesters.Count > 0)
+            {
+                _availableSemesters = result.Data.AvailableSemesters.ToList();
+            }
+        }
+        else
+        {
+            _errorMessage = string.Join(" ", result.Errors);
+        }
+    }
+
+    private async Task ApplyFiltersAsync()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        if (!access.IsAuthenticated)
+        {
+            return;
+        }
+
+        _isLoading = true;
+        _errorMessage = null;
+        try
+        {
+            await RefreshDataAsync(access);
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task SetFall2026PresetAsync()
+    {
+        _selectedSemester = "Fall 2026";
+        _dateFrom = null;
+        _dateTo = null;
+        await ApplyFiltersAsync();
+    }
+
+    private async Task SetLast30DaysPresetAsync()
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        _dateFrom = today.AddDays(-30);
+        _dateTo = today.AddDays(30);
+        await ApplyFiltersAsync();
+    }
+
+    private async Task ResetFiltersAsync()
+    {
+        _selectedSemester = string.Empty;
+        _selectedCourseId = null;
+        _selectedStudentId = null;
+        _dateFrom = null;
+        _dateTo = null;
+        await ApplyFiltersAsync();
+    }
+
+    private void OnAuthStateChanged(Task<AuthenticationState> task)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await LoadAnalyticsAsync();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        AuthStateProvider.AuthenticationStateChanged -= OnAuthStateChanged;
+    }
+}
