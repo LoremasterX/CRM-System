@@ -1,0 +1,501 @@
+@page "/schedule"
+@implements IDisposable
+@inject CrmAuthStateProvider AuthStateProvider
+@inject IAcademicService AcademicService
+@inject IStudentService StudentService
+
+<PageTitle>Class Schedule — Student CRM</PageTitle>
+
+@{
+    var access = AuthStateProvider.GetAccessContext();
+}
+
+@if (!access.IsAuthenticated)
+{
+    <EmptyStateCard Icon="🔒" Title="Authentication Required" Description="Please sign in to view your weekly class schedule.">
+        <a href="login" class="btn btn-primary">Go to Sign In</a>
+    </EmptyStateCard>
+}
+else
+{
+    <div class="crm-page-header">
+        <div>
+            <h1 class="crm-page-title">Weekly Class Schedule</h1>
+            <p class="crm-page-subtitle">
+                @(IsAdmin
+                    ? "Manage weekly course timetables, classroom assignments, and student schedules."
+                    : "View your weekly timetable, classrooms, instructors, and upcoming classes.")
+            </p>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            @if (!IsAdmin && AuthStateProvider.CurrentUser?.StudentId.HasValue == true)
+            {
+                <div class="btn-group">
+                    <button type="button"
+                            class="btn @(_showMyEnrolledOnly ? "btn-primary" : "btn-outline-primary")"
+                            @onclick="() => ToggleStudentScopeAsync(true)">
+                        My Enrolled Classes
+                    </button>
+                    <button type="button"
+                            class="btn @(!_showMyEnrolledOnly ? "btn-primary" : "btn-outline-primary")"
+                            @onclick="() => ToggleStudentScopeAsync(false)">
+                        Full Course Catalog Schedule
+                    </button>
+                </div>
+            }
+            @if (IsAdmin)
+            {
+                <button type="button" class="btn btn-primary" @onclick="OpenCreateScheduleForm">
+                    + Add Schedule Slot
+                </button>
+            }
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_alertMessage))
+    {
+        <div class="alert alert-@_alertVariant py-2 px-3 small d-flex justify-content-between align-items-center mb-3">
+            <span>@_alertMessage</span>
+            <button type="button" class="btn-close btn-sm" @onclick="ClearAlert"></button>
+        </div>
+    }
+
+    @if (IsAdmin)
+    {
+        <div class="crm-card p-3 mb-4">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-5">
+                    <label class="form-label fw-semibold small mb-1">Filter by Student Enrollment</label>
+                    <select class="form-select" value="@_filterStudentId" @onchange="OnFilterStudentChangedAsync">
+                        <option value="0">All University Courses</option>
+                        @foreach (var s in _students)
+                        {
+                            <option value="@s.Id">@s.FullName (@s.StudentNumber)</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label fw-semibold small mb-1">Filter by Course</label>
+                    <select class="form-select" value="@_filterCourseId" @onchange="OnFilterCourseChangedAsync">
+                        <option value="0">All Courses</option>
+                        @foreach (var c in _courses)
+                        {
+                            <option value="@c.Id">@c.CourseCode — @c.Title</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2 d-grid">
+                    <button type="button" class="btn btn-outline-secondary" @onclick="ResetFiltersAsync">Reset</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (IsAdmin && _showScheduleForm)
+    {
+        <div class="crm-card p-4 mb-4 border-primary">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="fw-bold mb-0">@(_editingScheduleId.HasValue ? "Edit Schedule Entry" : "Add Weekly Schedule Entry")</h5>
+                <button type="button" class="btn-close" @onclick="CancelScheduleForm"></button>
+            </div>
+
+            <EditForm Model="_scheduleForm" OnValidSubmit="SaveScheduleEntryAsync">
+                <DataAnnotationsValidator />
+                <div class="row g-3">
+                    <div class="col-md-5">
+                        <label class="form-label">Course</label>
+                        <InputSelect class="form-select" @bind-Value="_scheduleForm.CourseId">
+                            <option value="0">-- Select Course --</option>
+                            @foreach (var c in _courses)
+                            {
+                                <option value="@c.Id">@c.CourseCode — @c.Title</option>
+                            }
+                        </InputSelect>
+                        <ValidationMessage For="() => _scheduleForm.CourseId" />
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Day of Week</label>
+                        <InputSelect class="form-select" @bind-Value="_scheduleForm.DayOfWeek">
+                            @foreach (var day in _academicDays)
+                            {
+                                <option value="@day">@day</option>
+                            }
+                        </InputSelect>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Start Time</label>
+                        <input type="time" class="form-control" value="@_scheduleForm.StartTime.ToString("HH:mm")" @onchange="OnStartTimeChanged" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">End Time</label>
+                        <input type="time" class="form-control" value="@_scheduleForm.EndTime.ToString("HH:mm")" @onchange="OnEndTimeChanged" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Classroom / Location</label>
+                        <InputText class="form-control" @bind-Value="_scheduleForm.Classroom" placeholder="C1.2.245 / Lab 304" />
+                        <ValidationMessage For="() => _scheduleForm.Classroom" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Session Type</label>
+                        <InputSelect class="form-select" @bind-Value="_scheduleForm.LessonType">
+                            <option value="Lecture">Lecture</option>
+                            <option value="Lab">Lab</option>
+                            <option value="Seminar">Seminar</option>
+                            <option value="Workshop">Workshop</option>
+                        </InputSelect>
+                        <ValidationMessage For="() => _scheduleForm.LessonType" />
+                    </div>
+                </div>
+                <div class="d-flex justify-content-end gap-2 mt-4">
+                    <button type="button" class="btn btn-outline-secondary" @onclick="CancelScheduleForm">Cancel</button>
+                    <button type="submit" class="btn btn-primary" disabled="@_isBusy">
+                        @(_editingScheduleId.HasValue ? "Update Schedule Slot" : "Create Schedule Slot")
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    @if (_upcomingClasses.Count > 0)
+    {
+        <div class="crm-card p-4 mb-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div>
+                    <h5 class="fw-bold mb-0">⏳ Upcoming Classes</h5>
+                    <div class="text-muted small">Next scheduled sessions ordered from current day (@DateTime.Now.DayOfWeek)</div>
+                </div>
+                <span class="badge bg-primary-subtle text-primary">@_upcomingClasses.Count upcoming</span>
+            </div>
+            <div class="row g-3">
+                @foreach (var upcoming in _upcomingClasses)
+                {
+                    <div class="col-md-6 col-xl-3">
+                        <div class="border rounded-3 p-3 h-100 bg-light-subtle">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="badge bg-dark">@upcoming.DayOfWeek</span>
+                                <span class="badge bg-info-subtle text-info-emphasis">@upcoming.LessonType</span>
+                            </div>
+                            <div class="fw-bold text-primary small">@upcoming.CourseCode</div>
+                            <div class="fw-bold mb-2">@upcoming.CourseTitle</div>
+                            <div class="small text-muted mb-1">
+                                🕒 <strong>@upcoming.StartTime.ToString("HH:mm") – @upcoming.EndTime.ToString("HH:mm")</strong>
+                            </div>
+                            <div class="small text-muted mb-1">
+                                📍 Room: <strong>@upcoming.Classroom</strong>
+                            </div>
+                            <div class="small text-muted">
+                                👨‍🏫 @(upcoming.TeacherName ?? "TBA")
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    @if (_scheduleEntries.Count == 0)
+    {
+        <EmptyStateCard Icon="🗓️"
+                        Title="No schedule entries found"
+                        Description="There are no classes scheduled matching the current filter." />
+    }
+    else
+    {
+        <div class="row g-4">
+            @foreach (var day in _academicDays)
+            {
+                var dayEntries = _scheduleEntries.Where(s => s.DayOfWeek == day).OrderBy(s => s.StartTime).ToList();
+                <div class="col-md-6 col-xl-4">
+                    <div class="crm-card p-3 h-100">
+                        <div class="d-flex justify-content-between align-items-center pb-2 mb-3 border-bottom">
+                            <h6 class="fw-bold mb-0 @(DateTime.Now.DayOfWeek == day ? "text-primary" : "")">
+                                @day
+                                @if (DateTime.Now.DayOfWeek == day)
+                                {
+                                    <span class="badge bg-primary ms-1">Today</span>
+                                }
+                            </h6>
+                            <span class="badge bg-light text-secondary border">@dayEntries.Count session(s)</span>
+                        </div>
+
+                        @if (dayEntries.Count == 0)
+                        {
+                            <div class="text-muted small py-3 text-center">No scheduled classes</div>
+                        }
+                        else
+                        {
+                            <div class="d-flex flex-column gap-2">
+                                @foreach (var entry in dayEntries)
+                                {
+                                    <div class="border rounded-3 p-3">
+                                        <div class="d-flex justify-content-between align-items-start mb-1">
+                                            <span class="badge bg-primary-subtle text-primary fw-bold">@entry.CourseCode</span>
+                                            <span class="badge bg-secondary-subtle text-secondary-emphasis">@entry.LessonType</span>
+                                        </div>
+                                        <div class="fw-bold mb-1">@entry.CourseTitle</div>
+                                        <div class="small fw-semibold text-dark mb-1">
+                                            🕒 @entry.StartTime.ToString("HH:mm") – @entry.EndTime.ToString("HH:mm")
+                                        </div>
+                                        <div class="small text-muted mb-1">
+                                            📍 Classroom: <strong>@entry.Classroom</strong>
+                                        </div>
+                                        <div class="small text-muted">
+                                            👨‍🏫 Instructor: @(entry.TeacherName ?? "Unassigned")
+                                        </div>
+
+                                        @if (IsAdmin)
+                                        {
+                                            <div class="d-flex justify-content-end gap-2 mt-2 pt-2 border-top">
+                                                <button type="button" class="btn btn-sm btn-outline-secondary py-0" @onclick="() => OpenEditScheduleForm(entry)">Edit</button>
+                                                <button type="button" class="btn btn-sm btn-outline-danger py-0" @onclick="() => DeleteScheduleEntryAsync(entry.Id)">Delete</button>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    private static readonly DayOfWeek[] _academicDays =
+    [
+        DayOfWeek.Monday,
+        DayOfWeek.Tuesday,
+        DayOfWeek.Wednesday,
+        DayOfWeek.Thursday,
+        DayOfWeek.Friday,
+        DayOfWeek.Saturday
+    ];
+
+    private List<ScheduleEntryDto> _scheduleEntries = [];
+    private List<ScheduleEntryDto> _upcomingClasses = [];
+    private List<CourseDto> _courses = [];
+    private List<StudentDto> _students = [];
+
+    private bool _showMyEnrolledOnly = true;
+    private int _filterStudentId;
+    private int _filterCourseId;
+
+    private bool _showScheduleForm;
+    private int? _editingScheduleId;
+    private SaveScheduleEntryRequestDto _scheduleForm = new();
+
+    private bool _isBusy;
+    private string? _alertMessage;
+    private string _alertVariant = "info";
+
+    private bool IsAdmin => AuthStateProvider.GetAccessContext().IsAdmin;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthStateProvider.AuthenticationStateChanged += OnAuthStateChanged;
+        await LoadScheduleDataAsync();
+    }
+
+    private async Task LoadScheduleDataAsync()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        if (!access.IsAuthenticated)
+        {
+            return;
+        }
+
+        var coursesRes = await AcademicService.GetCoursesAsync(null, null, access);
+        if (coursesRes.Succeeded && coursesRes.Data is not null)
+        {
+            _courses = coursesRes.Data.ToList();
+        }
+
+        if (access.IsAdmin)
+        {
+            var studentsRes = await StudentService.GetStudentsAsync(null, access);
+            if (studentsRes.Succeeded && studentsRes.Data is not null)
+            {
+                _students = studentsRes.Data.ToList();
+            }
+        }
+
+        await RefreshScheduleEntriesAsync();
+    }
+
+    private async Task RefreshScheduleEntriesAsync()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        int? targetStudentId = null;
+
+        if (access.IsAdmin)
+        {
+            if (_filterStudentId > 0)
+            {
+                targetStudentId = _filterStudentId;
+            }
+        }
+        else if (_showMyEnrolledOnly && access.StudentId.HasValue)
+        {
+            targetStudentId = access.StudentId.Value;
+        }
+
+        int? targetCourseId = _filterCourseId > 0 ? _filterCourseId : null;
+
+        var scheduleRes = await AcademicService.GetScheduleAsync(targetStudentId, targetCourseId, access);
+        if (scheduleRes.Succeeded && scheduleRes.Data is not null)
+        {
+            _scheduleEntries = scheduleRes.Data.ToList();
+        }
+
+        var upcomingStudentId = targetStudentId ?? access.StudentId;
+        if (upcomingStudentId.HasValue && upcomingStudentId.Value > 0)
+        {
+            var upcomingRes = await AcademicService.GetUpcomingClassesAsync(upcomingStudentId.Value, DateTime.Now, 4, access);
+            _upcomingClasses = upcomingRes.Succeeded && upcomingRes.Data is not null
+                ? upcomingRes.Data.ToList()
+                : [];
+        }
+        else
+        {
+            _upcomingClasses = [];
+        }
+    }
+
+    private async Task ToggleStudentScopeAsync(bool enrolledOnly)
+    {
+        _showMyEnrolledOnly = enrolledOnly;
+        await RefreshScheduleEntriesAsync();
+    }
+
+    private async Task OnFilterStudentChangedAsync(ChangeEventArgs e)
+    {
+        _filterStudentId = int.TryParse(e.Value?.ToString(), out var id) ? id : 0;
+        await RefreshScheduleEntriesAsync();
+    }
+
+    private async Task OnFilterCourseChangedAsync(ChangeEventArgs e)
+    {
+        _filterCourseId = int.TryParse(e.Value?.ToString(), out var id) ? id : 0;
+        await RefreshScheduleEntriesAsync();
+    }
+
+    private async Task ResetFiltersAsync()
+    {
+        _filterStudentId = 0;
+        _filterCourseId = 0;
+        await RefreshScheduleEntriesAsync();
+    }
+
+    private void OpenCreateScheduleForm()
+    {
+        _editingScheduleId = null;
+        _scheduleForm = new SaveScheduleEntryRequestDto
+        {
+            CourseId = _courses.FirstOrDefault()?.Id ?? 0,
+            DayOfWeek = DayOfWeek.Monday,
+            StartTime = new TimeOnly(9, 0),
+            EndTime = new TimeOnly(10, 30),
+            Classroom = "C1.2.245",
+            LessonType = "Lecture"
+        };
+        _showScheduleForm = true;
+    }
+
+    private void OpenEditScheduleForm(ScheduleEntryDto entry)
+    {
+        _editingScheduleId = entry.Id;
+        _scheduleForm = new SaveScheduleEntryRequestDto
+        {
+            CourseId = entry.CourseId,
+            DayOfWeek = entry.DayOfWeek,
+            StartTime = entry.StartTime,
+            EndTime = entry.EndTime,
+            Classroom = entry.Classroom,
+            LessonType = entry.LessonType
+        };
+        _showScheduleForm = true;
+    }
+
+    private void CancelScheduleForm()
+    {
+        _showScheduleForm = false;
+        _editingScheduleId = null;
+    }
+
+    private void OnStartTimeChanged(ChangeEventArgs e)
+    {
+        if (TimeOnly.TryParse(e.Value?.ToString(), out var t))
+        {
+            _scheduleForm.StartTime = t;
+        }
+    }
+
+    private void OnEndTimeChanged(ChangeEventArgs e)
+    {
+        if (TimeOnly.TryParse(e.Value?.ToString(), out var t))
+        {
+            _scheduleForm.EndTime = t;
+        }
+    }
+
+    private async Task SaveScheduleEntryAsync()
+    {
+        _isBusy = true;
+        var access = AuthStateProvider.GetAccessContext();
+
+        var result = _editingScheduleId.HasValue
+            ? await AcademicService.UpdateScheduleEntryAsync(_editingScheduleId.Value, _scheduleForm, access)
+            : await AcademicService.CreateScheduleEntryAsync(_scheduleForm, access);
+
+        _isBusy = false;
+        if (result.Succeeded)
+        {
+            _showScheduleForm = false;
+            _editingScheduleId = null;
+            SetAlert("Schedule entry saved.", "success");
+            await RefreshScheduleEntriesAsync();
+        }
+        else
+        {
+            SetAlert(result.Message ?? "Failed to save schedule entry.", "danger");
+        }
+    }
+
+    private async Task DeleteScheduleEntryAsync(int id)
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        var result = await AcademicService.DeleteScheduleEntryAsync(id, access);
+        if (result.Succeeded)
+        {
+            SetAlert("Schedule entry deleted.", "info");
+            await RefreshScheduleEntriesAsync();
+        }
+        else
+        {
+            SetAlert(result.Message ?? "Failed to delete schedule entry.", "danger");
+        }
+    }
+
+    private void SetAlert(string message, string variant)
+    {
+        _alertMessage = message;
+        _alertVariant = variant;
+    }
+
+    private void ClearAlert() => _alertMessage = null;
+
+    private void OnAuthStateChanged(Task<AuthenticationState> task)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await LoadScheduleDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        AuthStateProvider.AuthenticationStateChanged -= OnAuthStateChanged;
+    }
+}

@@ -44,13 +44,14 @@ app.MapGet("/api/health", () => Results.Ok(new
 {
     status = "Healthy",
     application = "CRM for Students API",
-    stage = "Stage 1 - Student Management",
+    stage = "Stage 2 - Academic Management",
     timestampUtc = DateTime.UtcNow
 }))
 .WithName("GetApiHealth")
 .WithTags("System");
 
 app.MapAuthAndStudentEndpoints();
+app.MapAcademicEndpoints();
 
 app.Run();
 

@@ -1,5 +1,9 @@
+using CRM_System.Core.Academic.Interfaces;
+using CRM_System.Core.Academic.Models;
+using CRM_System.Core.Academic.Services;
 using CRM_System.Core.Students.Interfaces;
 using CRM_System.Core.Students.Services;
+using CRM_System.Infrastructure.Academic;
 using CRM_System.Infrastructure.Data;
 using CRM_System.Infrastructure.Students;
 using Microsoft.EntityFrameworkCore;
@@ -24,11 +28,30 @@ public static class DependencyInjection
         services.AddDbContext<CrmDbContext>(options =>
             options.UseSqlite(connectionString));
 
+        // Configurable Grading Scale (Stage 2)
+        var scaleOptions = new GradingScaleOptions();
+        var scaleSection = configuration.GetSection(GradingScaleOptions.SectionName);
+        if (scaleSection.Exists())
+        {
+            scaleSection.Bind(scaleOptions);
+            if (scaleOptions.Bands.Count == 0)
+            {
+                scaleOptions.Bands = GradingScaleOptions.GetDefaultBands();
+            }
+        }
+        services.AddSingleton(scaleOptions);
+        services.AddSingleton<IGpaCalculator>(sp => new ConfigurableGpaCalculator(sp.GetRequiredService<GradingScaleOptions>()));
+
+        // Stage 1: Student Management
         services.AddSingleton<IPasswordHasher, PasswordHasherAdapter>();
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IStudentRepository, StudentRepository>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IStudentService, StudentService>();
+
+        // Stage 2: Academic Management
+        services.AddScoped<IAcademicRepository, AcademicRepository>();
+        services.AddScoped<IAcademicService, AcademicService>();
 
         return services;
     }

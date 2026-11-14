@@ -3,6 +3,7 @@
 @inject CrmAuthStateProvider AuthStateProvider
 @inject IAuthService AuthService
 @inject IStudentService StudentService
+@inject IAcademicService AcademicService
 @inject NavigationManager Navigation
 
 <PageTitle>Dashboard — Student CRM</PageTitle>
@@ -83,8 +84,10 @@ else
                 }
             </p>
         </div>
-        <div class="d-flex gap-2">
+        <div class="d-flex flex-wrap gap-2">
             <a href="profile" class="btn btn-outline-primary">My Profile</a>
+            <a href="courses" class="btn btn-outline-primary">Courses</a>
+            <a href="academic-performance" class="btn btn-outline-primary">GPA &amp; Grades</a>
             @if (string.Equals(user.Role, UserRoles.Admin, StringComparison.OrdinalIgnoreCase))
             {
                 <a href="students" class="btn btn-primary">Manage Students</a>
@@ -92,7 +95,40 @@ else
         </div>
     </div>
 
-    @if (_stats is not null)
+    @if (_myGpa is not null && _myAttendance is not null)
+    {
+        <div class="row g-3 mb-4">
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Cumulative GPA"
+                          Value="@($"{_myGpa.CumulativeGpa:F2} / {_myGpa.MaxGpaPoints:F1}")"
+                          Subtitle="@($"Overall Average: {_myGpa.OverallAveragePercentage:F1}%")"
+                          Icon="🏆"
+                          Variant="primary" />
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Enrolled Courses"
+                          Value="@_myEnrollmentsCount.ToString()"
+                          Subtitle="@($"{_myGpa.TotalCreditsEarned} academic credits earned")"
+                          Icon="📚"
+                          Variant="info" />
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Attendance Rate"
+                          Value="@($"{_myAttendance.AttendanceRatePercentage:F1}%")"
+                          Subtitle="@($"{_myAttendance.PresentCount} Present / {_myAttendance.TotalSessions} Sessions")"
+                          Icon="📅"
+                          Variant="success" />
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Upcoming Classes"
+                          Value="@_upcomingClasses.Count.ToString()"
+                          Subtitle="Scheduled sessions ahead"
+                          Icon="🗓️"
+                          Variant="warning" />
+            </div>
+        </div>
+    }
+    else if (_stats is not null)
     {
         <div class="row g-3 mb-4">
             <div class="col-sm-6 col-xl-3">
@@ -102,10 +138,10 @@ else
                 <StatCard Title="Active Students" Value="@_stats.ActiveStudents.ToString()" Subtitle="Currently enrolled & active" Icon="✅" Variant="success" />
             </div>
             <div class="col-sm-6 col-xl-3">
-                <StatCard Title="Faculties" Value="@_stats.FacultiesCount.ToString()" Subtitle="Academic schools represented" Icon="🏛️" Variant="info" />
+                <StatCard Title="Active Courses" Value="@_totalCoursesCount.ToString()" Subtitle="Offered in current catalog" Icon="📚" Variant="info" />
             </div>
             <div class="col-sm-6 col-xl-3">
-                <StatCard Title="Departments" Value="@_stats.DepartmentsCount.ToString()" Subtitle="Specialized academic departments" Icon="🔬" Variant="warning" />
+                <StatCard Title="Faculty Members" Value="@_totalTeachersCount.ToString()" Subtitle="Assigned instructors & professors" Icon="👨‍🏫" Variant="warning" />
             </div>
         </div>
     }
@@ -126,7 +162,11 @@ else
                         </div>
                     </div>
                 </div>
-                <a href="profile" class="btn btn-sm btn-outline-primary">Edit Personal Profile</a>
+                <div class="d-flex gap-2">
+                    <a href="schedule" class="btn btn-sm btn-outline-secondary">Weekly Schedule</a>
+                    <a href="attendance" class="btn btn-sm btn-outline-secondary">Attendance</a>
+                    <a href="profile" class="btn btn-sm btn-outline-primary">Edit Personal Profile</a>
+                </div>
             </div>
 
             <div class="row g-3 pt-2 border-top">
@@ -154,12 +194,16 @@ else
         <div class="crm-card p-4">
             <h5 class="fw-bold mb-2">Administrator Quick Actions</h5>
             <p class="text-muted small mb-3">
-                Manage university student records, search across faculties and study programs, or create new student accounts.
+                Manage university student records, course catalog, teacher assignments, student grades, weekly schedules, and attendance logs.
             </p>
             <div class="d-flex flex-wrap gap-2">
-                <a href="students" class="btn btn-primary">Open Student Directory</a>
-                <a href="students/create" class="btn btn-outline-primary">+ Create New Student</a>
-                <a href="settings" class="btn btn-outline-secondary">Account Security Settings</a>
+                <a href="students" class="btn btn-primary">Student Directory</a>
+                <a href="students/create" class="btn btn-outline-primary">+ Create Student</a>
+                <a href="courses" class="btn btn-outline-primary">Courses &amp; Teachers</a>
+                <a href="academic-performance" class="btn btn-outline-primary">Grades &amp; GPA</a>
+                <a href="schedule" class="btn btn-outline-primary">Class Schedule</a>
+                <a href="attendance" class="btn btn-outline-primary">Attendance Log</a>
+                <a href="settings" class="btn btn-outline-secondary">Security Settings</a>
             </div>
         </div>
     }
@@ -168,6 +212,12 @@ else
 @code {
     private StudentDirectoryStatsDto? _stats;
     private StudentDto? _myProfile;
+    private StudentGpaSummaryDto? _myGpa;
+    private StudentAttendanceStatsDto? _myAttendance;
+    private List<ScheduleEntryDto> _upcomingClasses = [];
+    private int _myEnrollmentsCount;
+    private int _totalCoursesCount;
+    private int _totalTeachersCount;
 
     protected override async Task OnInitializedAsync()
     {
@@ -182,6 +232,9 @@ else
         {
             _stats = null;
             _myProfile = null;
+            _myGpa = null;
+            _myAttendance = null;
+            _upcomingClasses = [];
             return;
         }
 
@@ -191,10 +244,41 @@ else
             _stats = statsResult.Data;
         }
 
+        var coursesRes = await AcademicService.GetCoursesAsync(null, null, access);
+        _totalCoursesCount = coursesRes.Succeeded && coursesRes.Data is not null ? coursesRes.Data.Count : 0;
+
+        var teachersRes = await AcademicService.GetTeachersAsync(access);
+        _totalTeachersCount = teachersRes.Succeeded && teachersRes.Data is not null ? teachersRes.Data.Count : 0;
+
         if (access.UserId.HasValue)
         {
             var profileResult = await StudentService.GetStudentByUserIdAsync(access.UserId.Value, access);
             _myProfile = profileResult.Succeeded ? profileResult.Data : null;
+        }
+
+        if (access.StudentId.HasValue)
+        {
+            var sid = access.StudentId.Value;
+
+            var gpaRes = await AcademicService.GetStudentGpaSummaryAsync(sid, access);
+            _myGpa = gpaRes.Succeeded ? gpaRes.Data : null;
+
+            var attRes = await AcademicService.GetStudentAttendanceStatsAsync(sid, access);
+            _myAttendance = attRes.Succeeded ? attRes.Data : null;
+
+            var enrRes = await AcademicService.GetEnrollmentsAsync(sid, null, access);
+            _myEnrollmentsCount = enrRes.Succeeded && enrRes.Data is not null
+                ? enrRes.Data.Count(e => e.Status == EnrollmentStatus.Enrolled)
+                : 0;
+
+            var upRes = await AcademicService.GetUpcomingClassesAsync(sid, DateTime.Now, 4, access);
+            _upcomingClasses = upRes.Succeeded && upRes.Data is not null ? upRes.Data.ToList() : [];
+        }
+        else
+        {
+            _myGpa = null;
+            _myAttendance = null;
+            _upcomingClasses = [];
         }
     }
 

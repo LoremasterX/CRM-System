@@ -1,0 +1,495 @@
+@page "/attendance"
+@implements IDisposable
+@inject CrmAuthStateProvider AuthStateProvider
+@inject IAcademicService AcademicService
+@inject IStudentService StudentService
+
+<PageTitle>Attendance Tracking — Student CRM</PageTitle>
+
+@{
+    var access = AuthStateProvider.GetAccessContext();
+}
+
+@if (!access.IsAuthenticated)
+{
+    <EmptyStateCard Icon="🔒" Title="Authentication Required" Description="Please sign in to inspect class attendance records and statistics.">
+        <a href="login" class="btn btn-primary">Go to Sign In</a>
+    </EmptyStateCard>
+}
+else
+{
+    <div class="crm-page-header">
+        <div>
+            <h1 class="crm-page-title">Attendance Tracking &amp; Statistics</h1>
+            <p class="crm-page-subtitle">
+                @(IsAdmin
+                    ? "Record student class attendance (Present, Late, Absent) and monitor course attendance rates."
+                    : "Monitor your class attendance rate, per-course breakdown, and session attendance history.")
+            </p>
+        </div>
+        @if (IsAdmin)
+        {
+            <button type="button" class="btn btn-primary" @onclick="OpenCreateAttendanceForm">
+                + Record Attendance
+            </button>
+        }
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_alertMessage))
+    {
+        <div class="alert alert-@_alertVariant py-2 px-3 small d-flex justify-content-between align-items-center mb-3">
+            <span>@_alertMessage</span>
+            <button type="button" class="btn-close btn-sm" @onclick="ClearAlert"></button>
+        </div>
+    }
+
+    @if (IsAdmin && _students.Count > 0)
+    {
+        <div class="crm-card p-3 mb-4">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold small mb-1">Inspect Student Attendance</label>
+                    <select class="form-select" value="@_selectedStudentId" @onchange="OnSelectedStudentChangedAsync">
+                        @foreach (var s in _students)
+                        {
+                            <option value="@s.Id">@s.FullName (@s.StudentNumber — @s.Department)</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-semibold small mb-1">Filter Log by Course</label>
+                    <select class="form-select" @bind="_filterCourseId">
+                        <option value="0">All Courses</option>
+                        @foreach (var c in _courses)
+                        {
+                            <option value="@c.Id">@c.CourseCode — @c.Title</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2 d-grid">
+                    <button type="button" class="btn btn-outline-primary" @onclick="ReloadAttendanceStatsAsync">Refresh</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (IsAdmin && _showAttendanceForm)
+    {
+        <div class="crm-card p-4 mb-4 border-primary">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="fw-bold mb-0">@(_editingAttendanceId.HasValue ? "Edit Attendance Record" : "Record Class Attendance")</h5>
+                <button type="button" class="btn-close" @onclick="CancelAttendanceForm"></button>
+            </div>
+
+            <EditForm Model="_attendanceForm" OnValidSubmit="SaveAttendanceAsync">
+                <DataAnnotationsValidator />
+                <div class="row g-3">
+                    <div class="col-md-5">
+                        <label class="form-label">Student</label>
+                        <InputSelect class="form-select" @bind-Value="_attendanceForm.StudentId">
+                            <option value="0">-- Select Student --</option>
+                            @foreach (var s in _students)
+                            {
+                                <option value="@s.Id">@s.FullName (@s.StudentNumber)</option>
+                            }
+                        </InputSelect>
+                        <ValidationMessage For="() => _attendanceForm.StudentId" />
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label">Course</label>
+                        <InputSelect class="form-select" @bind-Value="_attendanceForm.CourseId">
+                            <option value="0">-- Select Course --</option>
+                            @foreach (var c in _courses)
+                            {
+                                <option value="@c.Id">@c.CourseCode — @c.Title</option>
+                            }
+                        </InputSelect>
+                        <ValidationMessage For="() => _attendanceForm.CourseId" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Status</label>
+                        <InputSelect class="form-select" @bind-Value="_attendanceForm.Status">
+                            @foreach (var status in Enum.GetValues<AttendanceStatus>())
+                            {
+                                <option value="@status">@status</option>
+                            }
+                        </InputSelect>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Session Date</label>
+                        <InputDate class="form-control" @bind-Value="_attendanceForm.Date" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Session Topic</label>
+                        <InputText class="form-control" @bind-Value="_attendanceForm.Topic" placeholder="Lecture 5: Entity Framework Core" />
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label">Instructor Notes</label>
+                        <InputText class="form-control" @bind-Value="_attendanceForm.Notes" placeholder="Optional attendance remark..." />
+                    </div>
+                </div>
+                <div class="d-flex justify-content-end gap-2 mt-4">
+                    <button type="button" class="btn btn-outline-secondary" @onclick="CancelAttendanceForm">Cancel</button>
+                    <button type="submit" class="btn btn-primary" disabled="@_isBusy">
+                        @(_editingAttendanceId.HasValue ? "Update Attendance" : "Save Attendance")
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    @if (_attendanceStats is not null)
+    {
+        <div class="row g-3 mb-4">
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Attendance Rate"
+                          Value="@($"{_attendanceStats.AttendanceRatePercentage:F1}%")"
+                          Subtitle="@($"Strict on-time rate: {_attendanceStats.StrictPresentPercentage:F1}%")"
+                          Icon="📈"
+                          Variant="primary" />
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Present Sessions"
+                          Value="@_attendanceStats.PresentCount.ToString()"
+                          Subtitle="@($"Out of {_attendanceStats.TotalSessions} total recorded sessions")"
+                          Icon="✅"
+                          Variant="success" />
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Late Arrivals"
+                          Value="@_attendanceStats.LateCount.ToString()"
+                          Subtitle="Counted as attended with tardiness"
+                          Icon="⏰"
+                          Variant="warning" />
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Absences"
+                          Value="@_attendanceStats.AbsentCount.ToString()"
+                          Subtitle="Missed class sessions"
+                          Icon="❌"
+                          Variant="danger" />
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <div class="col-lg-5">
+                <div class="crm-card p-4 h-100">
+                    <h5 class="fw-bold mb-3">Per-Course Attendance Rate</h5>
+                    @if (_attendanceStats.CourseBreakdowns.Count == 0)
+                    {
+                        <EmptyStateCard Icon="📊"
+                                        Title="No course attendance yet"
+                                        Description="Course attendance breakdowns will appear here once class sessions are logged." />
+                    }
+                    else
+                    {
+                        <div class="d-flex flex-column gap-3">
+                            @foreach (var course in _attendanceStats.CourseBreakdowns)
+                            {
+                                <div class="border rounded-3 p-3">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <div>
+                                            <span class="badge bg-primary-subtle text-primary fw-bold me-1">@course.CourseCode</span>
+                                            <span class="fw-semibold small">@course.CourseTitle</span>
+                                        </div>
+                                        <span class="fw-bold @(course.AttendanceRatePercentage >= 80m ? "text-success" : "text-warning")">
+                                            @course.AttendanceRatePercentage.ToString("F1")%
+                                        </span>
+                                    </div>
+                                    <div class="progress mb-2" style="height: 8px;">
+                                        <div class="progress-bar @(course.AttendanceRatePercentage >= 80m ? "bg-success" : "bg-warning")"
+                                             role="progressbar"
+                                             style="width: @(Math.Clamp(course.AttendanceRatePercentage, 0, 100))%">
+                                        </div>
+                                    </div>
+                                    <div class="d-flex gap-3 small text-muted">
+                                        <span>Total: <strong>@course.TotalSessions</strong></span>
+                                        <span class="text-success">Present: <strong>@course.PresentCount</strong></span>
+                                        <span class="text-warning-emphasis">Late: <strong>@course.LateCount</strong></span>
+                                        <span class="text-danger">Absent: <strong>@course.AbsentCount</strong></span>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="col-lg-7">
+                <div class="crm-card p-4 h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="fw-bold mb-0">Chronological Attendance Log</h5>
+                        @if (!IsAdmin)
+                        {
+                            <select class="form-select form-select-sm" style="max-width: 220px;" @bind="_filterCourseId">
+                                <option value="0">All Courses</option>
+                                @foreach (var c in _courses)
+                                {
+                                    <option value="@c.Id">@c.CourseCode — @c.Title</option>
+                                }
+                            </select>
+                        }
+                    </div>
+
+                    @{
+                        var filteredRecords = _filterCourseId > 0
+                            ? _attendanceStats.Records.Where(r => r.CourseId == _filterCourseId).ToList()
+                            : _attendanceStats.Records.ToList();
+                    }
+
+                    @if (filteredRecords.Count == 0)
+                    {
+                        <EmptyStateCard Icon="🗓️"
+                                        Title="No attendance records found"
+                                        Description="No attendance logs match the selected criteria." />
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Course</th>
+                                        <th>Status</th>
+                                        <th>Topic &amp; Notes</th>
+                                        @if (IsAdmin)
+                                        {
+                                            <th class="text-end">Actions</th>
+                                        }
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var record in filteredRecords)
+                                    {
+                                        <tr>
+                                            <td class="fw-semibold text-nowrap">@record.Date.ToString("yyyy-MM-dd")</td>
+                                            <td>
+                                                <div class="fw-bold text-primary small">@record.CourseCode</div>
+                                                <div class="small">@record.CourseTitle</div>
+                                            </td>
+                                            <td>
+                                                <span class="badge @GetAttendanceBadgeClass(record.Status)">
+                                                    @record.Status
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <div class="small fw-semibold">@(string.IsNullOrWhiteSpace(record.Topic) ? "Regular Session" : record.Topic)</div>
+                                                @if (!string.IsNullOrWhiteSpace(record.Notes))
+                                                {
+                                                    <div class="text-muted small">@record.Notes</div>
+                                                }
+                                            </td>
+                                            @if (IsAdmin)
+                                            {
+                                                <td class="text-end">
+                                                    <div class="btn-group btn-group-sm">
+                                                        <button type="button" class="btn btn-outline-secondary" @onclick="() => OpenEditAttendanceForm(record)">Edit</button>
+                                                        <button type="button" class="btn btn-outline-danger" @onclick="() => DeleteAttendanceAsync(record.Id)">Delete</button>
+                                                    </div>
+                                                </td>
+                                            }
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private List<StudentDto> _students = [];
+    private List<CourseDto> _courses = [];
+    private StudentAttendanceStatsDto? _attendanceStats;
+
+    private int _selectedStudentId;
+    private int _filterCourseId;
+
+    private bool _showAttendanceForm;
+    private int? _editingAttendanceId;
+    private SaveAttendanceRequestDto _attendanceForm = new();
+
+    private bool _isBusy;
+    private string? _alertMessage;
+    private string _alertVariant = "info";
+
+    private bool IsAdmin => AuthStateProvider.GetAccessContext().IsAdmin;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthStateProvider.AuthenticationStateChanged += OnAuthStateChanged;
+        await LoadPageDataAsync();
+    }
+
+    private async Task LoadPageDataAsync()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        if (!access.IsAuthenticated)
+        {
+            return;
+        }
+
+        var coursesRes = await AcademicService.GetCoursesAsync(null, null, access);
+        if (coursesRes.Succeeded && coursesRes.Data is not null)
+        {
+            _courses = coursesRes.Data.ToList();
+        }
+
+        if (access.IsAdmin)
+        {
+            var studentsRes = await StudentService.GetStudentsAsync(null, access);
+            if (studentsRes.Succeeded && studentsRes.Data is not null)
+            {
+                _students = studentsRes.Data.ToList();
+                if (_selectedStudentId == 0 && _students.Count > 0)
+                {
+                    _selectedStudentId = _students[0].Id;
+                }
+            }
+        }
+        else if (access.StudentId.HasValue)
+        {
+            _selectedStudentId = access.StudentId.Value;
+        }
+
+        await ReloadAttendanceStatsAsync();
+    }
+
+    private async Task OnSelectedStudentChangedAsync(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var studentId))
+        {
+            _selectedStudentId = studentId;
+            await ReloadAttendanceStatsAsync();
+        }
+    }
+
+    private async Task ReloadAttendanceStatsAsync()
+    {
+        if (_selectedStudentId <= 0)
+        {
+            _attendanceStats = null;
+            return;
+        }
+
+        var access = AuthStateProvider.GetAccessContext();
+        var statsRes = await AcademicService.GetStudentAttendanceStatsAsync(_selectedStudentId, access);
+        if (statsRes.Succeeded)
+        {
+            _attendanceStats = statsRes.Data;
+        }
+        else
+        {
+            SetAlert(statsRes.Message ?? "Could not load attendance statistics.", "danger");
+        }
+    }
+
+    private void OpenCreateAttendanceForm()
+    {
+        _editingAttendanceId = null;
+        _attendanceForm = new SaveAttendanceRequestDto
+        {
+            StudentId = _selectedStudentId > 0 ? _selectedStudentId : (_students.FirstOrDefault()?.Id ?? 0),
+            CourseId = _courses.FirstOrDefault()?.Id ?? 0,
+            Date = DateOnly.FromDateTime(DateTime.UtcNow),
+            Status = AttendanceStatus.Present,
+            Topic = string.Empty,
+            Notes = string.Empty
+        };
+        _showAttendanceForm = true;
+    }
+
+    private void OpenEditAttendanceForm(AttendanceRecordDto record)
+    {
+        _editingAttendanceId = record.Id;
+        _attendanceForm = new SaveAttendanceRequestDto
+        {
+            StudentId = record.StudentId,
+            CourseId = record.CourseId,
+            Date = record.Date,
+            Status = record.Status,
+            Topic = record.Topic,
+            Notes = record.Notes
+        };
+        _showAttendanceForm = true;
+    }
+
+    private void CancelAttendanceForm()
+    {
+        _showAttendanceForm = false;
+        _editingAttendanceId = null;
+    }
+
+    private async Task SaveAttendanceAsync()
+    {
+        _isBusy = true;
+        var access = AuthStateProvider.GetAccessContext();
+
+        var result = _editingAttendanceId.HasValue
+            ? await AcademicService.UpdateAttendanceAsync(_editingAttendanceId.Value, _attendanceForm, access)
+            : await AcademicService.RecordAttendanceAsync(_attendanceForm, access);
+
+        _isBusy = false;
+        if (result.Succeeded)
+        {
+            _selectedStudentId = _attendanceForm.StudentId;
+            _showAttendanceForm = false;
+            _editingAttendanceId = null;
+            SetAlert("Attendance record saved.", "success");
+            await ReloadAttendanceStatsAsync();
+        }
+        else
+        {
+            SetAlert(result.Message ?? "Failed to save attendance record.", "danger");
+        }
+    }
+
+    private async Task DeleteAttendanceAsync(int id)
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        var result = await AcademicService.DeleteAttendanceAsync(id, access);
+        if (result.Succeeded)
+        {
+            SetAlert("Attendance record deleted.", "info");
+            await ReloadAttendanceStatsAsync();
+        }
+        else
+        {
+            SetAlert(result.Message ?? "Failed to delete attendance record.", "danger");
+        }
+    }
+
+    private static string GetAttendanceBadgeClass(AttendanceStatus status) => status switch
+    {
+        AttendanceStatus.Present => "bg-success",
+        AttendanceStatus.Late => "bg-warning text-dark",
+        AttendanceStatus.Absent => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    private void SetAlert(string message, string variant)
+    {
+        _alertMessage = message;
+        _alertVariant = variant;
+    }
+
+    private void ClearAlert() => _alertMessage = null;
+
+    private void OnAuthStateChanged(Task<AuthenticationState> task)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await LoadPageDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        AuthStateProvider.AuthenticationStateChanged -= OnAuthStateChanged;
+    }
+}

@@ -14,14 +14,22 @@ Content-Type: application/json
   "rememberMe": true
 }
 
-### Get Current Authenticated User
-GET {{CRM_System.API_HostAddress}}/api/auth/me
+### Get All Courses
+GET {{CRM_System.API_HostAddress}}/api/courses
 Accept: application/json
 
-### Get All Students (Admin)
-GET {{CRM_System.API_HostAddress}}/api/students?searchTerm=&sortBy=FullName
+### Get All Teachers
+GET {{CRM_System.API_HostAddress}}/api/teachers
 Accept: application/json
 
-### Get Student by ID
-GET {{CRM_System.API_HostAddress}}/api/students/1
+### Get Student 1 GPA Summary
+GET {{CRM_System.API_HostAddress}}/api/grades/gpa/1
+Accept: application/json
+
+### Get Student 1 Weekly Schedule
+GET {{CRM_System.API_HostAddress}}/api/schedule?studentId=1
+Accept: application/json
+
+### Get Student 1 Attendance Statistics
+GET {{CRM_System.API_HostAddress}}/api/attendance/stats/1
 Accept: application/json

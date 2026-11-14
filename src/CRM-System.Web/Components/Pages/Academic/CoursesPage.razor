@@ -1,0 +1,615 @@
+@page "/courses"
+@inject CrmAuthStateProvider AuthStateProvider
+@inject IAcademicService AcademicService
+@inject IStudentService StudentService
+
+<PageTitle>Courses, Teachers &amp; Enrollment — Student CRM</PageTitle>
+
+@{
+    var access = AuthStateProvider.GetAccessContext();
+}
+
+@if (!access.IsAuthenticated)
+{
+    <EmptyStateCard Icon="🔒" Title="Sign In Required" Description="Please sign in to browse university courses, view teacher profiles, and manage course enrollments.">
+        <a href="login" class="btn btn-primary">Sign In</a>
+    </EmptyStateCard>
+}
+else
+{
+    <div class="crm-page-header">
+        <div>
+            <h1 class="crm-page-title">Courses, Teachers &amp; Enrollment</h1>
+            <p class="crm-page-subtitle">Explore university courses, faculty instructors, and student course registrations</p>
+        </div>
+        @if (access.IsAdmin)
+        {
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-outline-primary" @onclick="OpenNewTeacherForm">+ Add Teacher</button>
+                <button type="button" class="btn btn-primary" @onclick="OpenNewCourseForm">+ Create Course</button>
+            </div>
+        }
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_feedbackMessage))
+    {
+        <div class="alert @(_feedbackIsError ? "alert-danger" : "alert-success") py-2 px-3 small d-flex justify-content-between align-items-center">
+            <span>@_feedbackMessage</span>
+            <button type="button" class="btn-close btn-sm" @onclick="() => _feedbackMessage = null"></button>
+        </div>
+    }
+
+    <div class="row g-3 mb-4">
+        <div class="col-sm-6 col-xl-3">
+            <StatCard Title="Available Courses" Value="@_courses.Count.ToString()" Subtitle="Active academic catalog" Icon="📚" Variant="primary" />
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <StatCard Title="Faculty Teachers" Value="@_teachers.Count.ToString()" Subtitle="Instructors & professors" Icon="👨‍🏫" Variant="info" />
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <StatCard Title="@(access.IsAdmin ? "Total Enrollments" : "My Enrolled Courses")"
+                      Value="@_enrollments.Count(e => e.Status == EnrollmentStatus.Enrolled).ToString()"
+                      Subtitle="Active semester registrations"
+                      Icon="🎓"
+                      Variant="success" />
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <StatCard Title="@(access.IsAdmin ? "Total Course Credits" : "My Registered Credits")"
+                      Value="@_enrollments.Where(e => e.Status == EnrollmentStatus.Enrolled).Sum(e => e.Credits).ToString()"
+                      Subtitle="ECTS / Credit hours"
+                      Icon="⭐"
+                      Variant="warning" />
+        </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <ul class="nav nav-pills mb-4 gap-2">
+        <li class="nav-item">
+            <button type="button" class="nav-link @(_activeTab == "courses" ? "active" : "bg-white border text-dark")" @onclick='() => _activeTab = "courses"'>
+                📚 Courses Catalog (@_courses.Count)
+            </button>
+        </li>
+        <li class="nav-item">
+            <button type="button" class="nav-link @(_activeTab == "enrollments" ? "active" : "bg-white border text-dark")" @onclick='() => _activeTab = "enrollments"'>
+                🎓 @(access.IsAdmin ? "All Student Enrollments" : "My Enrolled Courses") (@_enrollments.Count)
+            </button>
+        </li>
+        <li class="nav-item">
+            <button type="button" class="nav-link @(_activeTab == "teachers" ? "active" : "bg-white border text-dark")" @onclick='() => _activeTab = "teachers"'>
+                👨‍🏫 Faculty &amp; Teachers (@_teachers.Count)
+            </button>
+        </li>
+    </ul>
+
+    @if (_showCourseForm && access.IsAdmin)
+    {
+        <div class="crm-card p-4 mb-4 border-primary">
+            <h5 class="fw-bold mb-3">@(_editingCourseId.HasValue ? "Edit Course" : "Create New Course")</h5>
+            <EditForm Model="_courseForm" OnValidSubmit="SaveCourseAsync" FormName="SaveCourseForm">
+                <DataAnnotationsValidator />
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="crm-form-label">Course Code *</label>
+                        <InputText class="form-control" @bind-Value="_courseForm.CourseCode" placeholder="CS-301" />
+                        <ValidationMessage For="() => _courseForm.CourseCode" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="crm-form-label">Course Title *</label>
+                        <InputText class="form-control" @bind-Value="_courseForm.Title" placeholder="Enterprise Software Engineering" />
+                        <ValidationMessage For="() => _courseForm.Title" />
+                    </div>
+                    <div class="col-md-3">
+                        <label class="crm-form-label">Credits (1-15) *</label>
+                        <InputNumber class="form-control" @bind-Value="_courseForm.Credits" min="1" max="15" />
+                        <ValidationMessage For="() => _courseForm.Credits" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="crm-form-label">Department *</label>
+                        <InputText class="form-control" @bind-Value="_courseForm.Department" />
+                        <ValidationMessage For="() => _courseForm.Department" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="crm-form-label">Semester *</label>
+                        <InputText class="form-control" @bind-Value="_courseForm.Semester" />
+                        <ValidationMessage For="() => _courseForm.Semester" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="crm-form-label">Assigned Teacher</label>
+                        <InputSelect class="form-select" @bind-Value="_courseForm.TeacherId">
+                            <option value="">-- Unassigned --</option>
+                            @foreach (var t in _teachers)
+                            {
+                                <option value="@t.Id">@t.FullName (@t.AcademicTitle)</option>
+                            }
+                        </InputSelect>
+                    </div>
+                    <div class="col-12">
+                        <label class="crm-form-label">Course Description *</label>
+                        <InputTextArea class="form-control" rows="2" @bind-Value="_courseForm.Description" />
+                        <ValidationMessage For="() => _courseForm.Description" />
+                    </div>
+                </div>
+                <div class="d-flex justify-content-end gap-2 mt-3">
+                    <button type="button" class="btn btn-outline-secondary" @onclick="() => _showCourseForm = false">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Course</button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    @if (_showTeacherForm && access.IsAdmin)
+    {
+        <div class="crm-card p-4 mb-4 border-info">
+            <h5 class="fw-bold mb-3">@(_editingTeacherId.HasValue ? "Edit Teacher Profile" : "Add New Teacher")</h5>
+            <EditForm Model="_teacherForm" OnValidSubmit="SaveTeacherAsync" FormName="SaveTeacherForm">
+                <DataAnnotationsValidator />
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="crm-form-label">Full Name *</label>
+                        <InputText class="form-control" @bind-Value="_teacherForm.FullName" />
+                        <ValidationMessage For="() => _teacherForm.FullName" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="crm-form-label">Email *</label>
+                        <InputText class="form-control" @bind-Value="_teacherForm.Email" />
+                        <ValidationMessage For="() => _teacherForm.Email" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="crm-form-label">Academic Title *</label>
+                        <InputText class="form-control" @bind-Value="_teacherForm.AcademicTitle" />
+                        <ValidationMessage For="() => _teacherForm.AcademicTitle" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="crm-form-label">Department *</label>
+                        <InputText class="form-control" @bind-Value="_teacherForm.Department" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="crm-form-label">Office Room</label>
+                        <InputText class="form-control" @bind-Value="_teacherForm.OfficeRoom" placeholder="C1.3.310" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="crm-form-label">Phone Number</label>
+                        <InputText class="form-control" @bind-Value="_teacherForm.PhoneNumber" />
+                    </div>
+                    <div class="col-12">
+                        <label class="crm-form-label">Academic Bio &amp; Research Areas</label>
+                        <InputTextArea class="form-control" rows="2" @bind-Value="_teacherForm.Bio" />
+                    </div>
+                </div>
+                <div class="d-flex justify-content-end gap-2 mt-3">
+                    <button type="button" class="btn btn-outline-secondary" @onclick="() => _showTeacherForm = false">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Teacher</button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    @if (_activeTab == "courses")
+    {
+        <div class="crm-card p-3 mb-3">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-8">
+                    <label class="crm-form-label">Search Courses</label>
+                    <input type="text" class="form-control" placeholder="Search by code, title, description, or department..."
+                           @bind="_searchTerm" @bind:event="oninput" @onkeyup="LoadDataAsync" />
+                </div>
+                <div class="col-md-4 d-grid">
+                    <button type="button" class="btn btn-outline-secondary" @onclick="ClearSearchAsync">Clear Search</button>
+                </div>
+            </div>
+        </div>
+
+        @if (_courses.Count == 0)
+        {
+            <EmptyStateCard Icon="📚" Title="No Courses Found" Description="No courses matched your current filter." />
+        }
+        else
+        {
+            <div class="row g-3">
+                @foreach (var course in _courses)
+                {
+                    var isEnrolled = access.StudentId.HasValue &&
+                                     _enrollments.Any(e => e.CourseId == course.Id && e.StudentId == access.StudentId.Value && e.Status == EnrollmentStatus.Enrolled);
+
+                    <div class="col-lg-6">
+                        <div class="crm-card crm-card-hover p-4 h-100 d-flex flex-column justify-content-between">
+                            <div>
+                                <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                                    <div>
+                                        <span class="badge bg-primary-subtle text-primary-emphasis font-monospace me-2">@course.CourseCode</span>
+                                        <span class="badge bg-light text-dark border">@course.Credits Credits</span>
+                                        <span class="badge bg-light text-secondary border ms-1">@course.Semester</span>
+                                    </div>
+                                    <span class="small text-muted">@course.EnrolledStudentsCount enrolled</span>
+                                </div>
+                                <h5 class="fw-bold mb-1">@course.Title</h5>
+                                <div class="text-muted small mb-2">@course.Department</div>
+                                <p class="text-muted small mb-3">@course.Description</p>
+                            </div>
+
+                            <div class="pt-3 border-top d-flex flex-wrap justify-content-between align-items-center gap-2">
+                                <div class="small">
+                                    <span class="text-muted">Instructor:</span>
+                                    <span class="fw-semibold">@(course.TeacherName ?? "TBA")</span>
+                                    @if (!string.IsNullOrWhiteSpace(course.TeacherTitle))
+                                    {
+                                        <span class="text-muted">(@course.TeacherTitle)</span>
+                                    }
+                                </div>
+
+                                <div class="d-flex gap-1">
+                                    @if (access.StudentId.HasValue)
+                                    {
+                                        @if (isEnrolled)
+                                        {
+                                            <span class="crm-badge crm-badge-success">✓ Enrolled</span>
+                                        }
+                                        else
+                                        {
+                                            <button type="button" class="btn btn-sm btn-primary" @onclick="() => SelfEnrollAsync(course.Id)">
+                                                Enroll Now
+                                            </button>
+                                        }
+                                    }
+
+                                    @if (access.IsAdmin)
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => EditCourse(course)">Edit</button>
+                                        <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => DeleteCourseAsync(course.Id)">Delete</button>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    }
+    else if (_activeTab == "enrollments")
+    {
+        @if (access.IsAdmin)
+        {
+            <div class="crm-card p-3 mb-3">
+                <h6 class="fw-bold mb-2">Enroll Student in Course</h6>
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-5">
+                        <label class="crm-form-label">Select Student</label>
+                        <select class="form-select" @bind="_newEnrollment.StudentId">
+                            <option value="0">-- Choose Student --</option>
+                            @foreach (var s in _allStudents)
+                            {
+                                <option value="@s.Id">@s.FullName (@s.StudentNumber)</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="crm-form-label">Select Course</label>
+                        <select class="form-select" @bind="_newEnrollment.CourseId">
+                            <option value="0">-- Choose Course --</option>
+                            @foreach (var c in _courses)
+                            {
+                                <option value="@c.Id">@c.CourseCode — @c.Title (@c.Credits cr.)</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-2 d-grid">
+                        <button type="button" class="btn btn-primary" @onclick="AdminEnrollStudentAsync">Enroll</button>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_enrollments.Count == 0)
+        {
+            <EmptyStateCard Icon="🎓" Title="No Course Enrollments Yet" Description="Enroll in courses from the Course Catalog tab to build your semester study plan." />
+        }
+        else
+        {
+            <div class="crm-card overflow-hidden">
+                <div class="table-responsive">
+                    <table class="table crm-table mb-0">
+                        <thead>
+                            <tr>
+                                @if (access.IsAdmin)
+                                {
+                                    <th>Student</th>
+                                }
+                                <th>Course Code</th>
+                                <th>Course Title</th>
+                                <th>Instructor</th>
+                                <th>Credits</th>
+                                <th>Semester</th>
+                                <th>Status</th>
+                                <th class="text-end">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var e in _enrollments)
+                            {
+                                <tr>
+                                    @if (access.IsAdmin)
+                                    {
+                                        <td>
+                                            <div class="fw-semibold">@e.StudentName</div>
+                                            <div class="text-muted small font-monospace">@e.StudentNumber</div>
+                                        </td>
+                                    }
+                                    <td><span class="badge bg-primary-subtle text-primary-emphasis font-monospace">@e.CourseCode</span></td>
+                                    <td class="fw-semibold">@e.CourseTitle</td>
+                                    <td class="small text-muted">@(e.TeacherName ?? "TBA")</td>
+                                    <td>@e.Credits</td>
+                                    <td>@e.Semester</td>
+                                    <td>
+                                        <span class="crm-badge @(e.Status == EnrollmentStatus.Enrolled ? "crm-badge-success" : "crm-badge-secondary")">
+                                            @e.Status
+                                        </span>
+                                    </td>
+                                    <td class="text-end">
+                                        <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveEnrollmentAsync(e.Id)">
+                                            Remove
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+    }
+    else if (_activeTab == "teachers")
+    {
+        <div class="row g-3">
+            @foreach (var t in _teachers)
+            {
+                <div class="col-md-6">
+                    <div class="crm-card p-4 h-100">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <h5 class="fw-bold mb-1">@t.FullName</h5>
+                                <div class="text-primary small fw-semibold">@t.AcademicTitle • @t.Department</div>
+                                <div class="text-muted small mt-1">@t.Email @(string.IsNullOrWhiteSpace(t.OfficeRoom) ? "" : $"• Office: {t.OfficeRoom}")</div>
+                            </div>
+                            @if (access.IsAdmin)
+                            {
+                                <div class="d-flex gap-1">
+                                    <button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => EditTeacher(t)">Edit</button>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => DeleteTeacherAsync(t.Id)">Delete</button>
+                                </div>
+                            }
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(t.Bio))
+                        {
+                            <p class="text-muted small mt-2 mb-2">@t.Bio</p>
+                        }
+                        <div class="mt-3 pt-2 border-top d-flex flex-wrap gap-1 align-items-center">
+                            <span class="small text-muted me-1">Assigned Courses (@t.AssignedCoursesCount):</span>
+                            @if (t.CourseCodes.Count == 0)
+                            {
+                                <span class="small text-muted">None assigned</span>
+                            }
+                            else
+                            {
+                                @foreach (var courseCode in t.CourseCodes)
+                                {
+                                    <span class="badge bg-light text-dark border font-monospace">@courseCode</span>
+                                }
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    private string _activeTab = "courses";
+    private string? _searchTerm;
+    private IReadOnlyList<CourseDto> _courses = [];
+    private IReadOnlyList<TeacherDto> _teachers = [];
+    private IReadOnlyList<EnrollmentDto> _enrollments = [];
+    private IReadOnlyList<StudentDto> _allStudents = [];
+
+    private bool _showCourseForm;
+    private int? _editingCourseId;
+    private SaveCourseRequestDto _courseForm = new();
+
+    private bool _showTeacherForm;
+    private int? _editingTeacherId;
+    private SaveTeacherRequestDto _teacherForm = new();
+
+    private CreateEnrollmentRequestDto _newEnrollment = new();
+    private string? _feedbackMessage;
+    private bool _feedbackIsError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        if (!access.IsAuthenticated)
+        {
+            return;
+        }
+
+        var coursesRes = await AcademicService.GetCoursesAsync(_searchTerm, null, access);
+        if (coursesRes.Succeeded && coursesRes.Data is not null)
+        {
+            _courses = coursesRes.Data;
+        }
+
+        var teachersRes = await AcademicService.GetTeachersAsync(access);
+        if (teachersRes.Succeeded && teachersRes.Data is not null)
+        {
+            _teachers = teachersRes.Data;
+        }
+
+        var enrollmentsRes = await AcademicService.GetEnrollmentsAsync(access.IsAdmin ? null : access.StudentId, null, access);
+        if (enrollmentsRes.Succeeded && enrollmentsRes.Data is not null)
+        {
+            _enrollments = enrollmentsRes.Data;
+        }
+
+        if (access.IsAdmin)
+        {
+            var studentsRes = await StudentService.GetStudentsAsync(null, access);
+            if (studentsRes.Succeeded && studentsRes.Data is not null)
+            {
+                _allStudents = studentsRes.Data;
+            }
+        }
+    }
+
+    private async Task ClearSearchAsync()
+    {
+        _searchTerm = null;
+        await LoadDataAsync();
+    }
+
+    private void OpenNewCourseForm()
+    {
+        _editingCourseId = null;
+        _courseForm = new SaveCourseRequestDto();
+        _showCourseForm = true;
+        _showTeacherForm = false;
+    }
+
+    private void EditCourse(CourseDto course)
+    {
+        _editingCourseId = course.Id;
+        _courseForm = new SaveCourseRequestDto
+        {
+            CourseCode = course.CourseCode,
+            Title = course.Title,
+            Description = course.Description,
+            Credits = course.Credits,
+            Department = course.Department,
+            Semester = course.Semester,
+            TeacherId = course.TeacherId,
+            IsActive = course.IsActive
+        };
+        _showCourseForm = true;
+        _showTeacherForm = false;
+    }
+
+    private async Task SaveCourseAsync()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        var result = _editingCourseId.HasValue
+            ? await AcademicService.UpdateCourseAsync(_editingCourseId.Value, _courseForm, access)
+            : await AcademicService.CreateCourseAsync(_courseForm, access);
+
+        _feedbackIsError = !result.Succeeded;
+        _feedbackMessage = result.Message;
+        if (result.Succeeded)
+        {
+            _showCourseForm = false;
+            await LoadDataAsync();
+        }
+    }
+
+    private async Task DeleteCourseAsync(int id)
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        var result = await AcademicService.DeleteCourseAsync(id, access);
+        _feedbackIsError = !result.Succeeded;
+        _feedbackMessage = result.Message;
+        await LoadDataAsync();
+    }
+
+    private void OpenNewTeacherForm()
+    {
+        _editingTeacherId = null;
+        _teacherForm = new SaveTeacherRequestDto();
+        _showTeacherForm = true;
+        _showCourseForm = false;
+        _activeTab = "teachers";
+    }
+
+    private void EditTeacher(TeacherDto teacher)
+    {
+        _editingTeacherId = teacher.Id;
+        _teacherForm = new SaveTeacherRequestDto
+        {
+            FullName = teacher.FullName,
+            Email = teacher.Email,
+            Department = teacher.Department,
+            AcademicTitle = teacher.AcademicTitle,
+            OfficeRoom = teacher.OfficeRoom,
+            PhoneNumber = teacher.PhoneNumber,
+            Bio = teacher.Bio
+        };
+        _showTeacherForm = true;
+        _showCourseForm = false;
+    }
+
+    private async Task SaveTeacherAsync()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        var result = _editingTeacherId.HasValue
+            ? await AcademicService.UpdateTeacherAsync(_editingTeacherId.Value, _teacherForm, access)
+            : await AcademicService.CreateTeacherAsync(_teacherForm, access);
+
+        _feedbackIsError = !result.Succeeded;
+        _feedbackMessage = result.Message;
+        if (result.Succeeded)
+        {
+            _showTeacherForm = false;
+            await LoadDataAsync();
+        }
+    }
+
+    private async Task DeleteTeacherAsync(int id)
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        var result = await AcademicService.DeleteTeacherAsync(id, access);
+        _feedbackIsError = !result.Succeeded;
+        _feedbackMessage = result.Message;
+        await LoadDataAsync();
+    }
+
+    private async Task SelfEnrollAsync(int courseId)
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        if (!access.StudentId.HasValue)
+        {
+            return;
+        }
+
+        var result = await AcademicService.EnrollStudentAsync(new CreateEnrollmentRequestDto
+        {
+            StudentId = access.StudentId.Value,
+            CourseId = courseId,
+            Semester = "Fall 2026"
+        }, access);
+
+        _feedbackIsError = !result.Succeeded;
+        _feedbackMessage = result.Message;
+        await LoadDataAsync();
+    }
+
+    private async Task AdminEnrollStudentAsync()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        var result = await AcademicService.EnrollStudentAsync(_newEnrollment, access);
+        _feedbackIsError = !result.Succeeded;
+        _feedbackMessage = result.Message;
+        if (result.Succeeded)
+        {
+            await LoadDataAsync();
+        }
+    }
+
+    private async Task RemoveEnrollmentAsync(int enrollmentId)
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        var result = await AcademicService.RemoveEnrollmentAsync(enrollmentId, access);
+        _feedbackIsError = !result.Succeeded;
+        _feedbackMessage = result.Message;
+        await LoadDataAsync();
+    }
+}

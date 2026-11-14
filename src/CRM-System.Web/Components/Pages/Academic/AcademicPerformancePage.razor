@@ -1,0 +1,526 @@
+@page "/academic-performance"
+@implements IDisposable
+@inject CrmAuthStateProvider AuthStateProvider
+@inject IAcademicService AcademicService
+@inject IStudentService StudentService
+
+<PageTitle>Academic Performance &amp; GPA — Student CRM</PageTitle>
+
+@{
+    var access = AuthStateProvider.GetAccessContext();
+}
+
+@if (!access.IsAuthenticated)
+{
+    <EmptyStateCard Icon="🔒" Title="Authentication Required" Description="Please sign in to view academic grades and GPA analytics.">
+        <a href="login" class="btn btn-primary">Go to Sign In</a>
+    </EmptyStateCard>
+}
+else
+{
+    <div class="crm-page-header">
+        <div>
+            <h1 class="crm-page-title">Grades &amp; Academic Performance</h1>
+            <p class="crm-page-subtitle">
+                @(IsAdmin
+                    ? "Record student assessments, manage weighted scores, and inspect configurable credit-weighted GPA calculations."
+                    : "Track your course assessments, weighted averages, letter grades, and cumulative GPA.")
+            </p>
+        </div>
+        @if (IsAdmin)
+        {
+            <button type="button" class="btn btn-primary" @onclick="OpenCreateGradeForm">
+                + Record New Grade
+            </button>
+        }
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_alertMessage))
+    {
+        <div class="alert alert-@_alertVariant py-2 px-3 small d-flex justify-content-between align-items-center mb-3">
+            <span>@_alertMessage</span>
+            <button type="button" class="btn-close btn-sm" @onclick="ClearAlert"></button>
+        </div>
+    }
+
+    @if (IsAdmin && _students.Count > 0)
+    {
+        <div class="crm-card p-3 mb-4">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold small mb-1">Inspect Student Academic Transcript &amp; GPA</label>
+                    <select class="form-select" value="@_selectedStudentId" @onchange="OnSelectedStudentChangedAsync">
+                        @foreach (var student in _students)
+                        {
+                            <option value="@student.Id">@student.FullName (@student.StudentNumber — @student.Department)</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-semibold small mb-1">Filter Grades by Course</label>
+                    <select class="form-select" @bind="_filterCourseId">
+                        <option value="0">All Courses</option>
+                        @foreach (var course in _courses)
+                        {
+                            <option value="@course.Id">@course.CourseCode — @course.Title</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2 d-grid">
+                    <button type="button" class="btn btn-outline-primary" @onclick="ReloadTranscriptAsync">Refresh</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (IsAdmin && _showGradeForm)
+    {
+        <div class="crm-card p-4 mb-4 border-primary">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="fw-bold mb-0">@(_editingGradeId.HasValue ? "Edit Grade Assessment" : "Record New Grade Assessment")</h5>
+                <button type="button" class="btn-close" @onclick="CancelGradeForm"></button>
+            </div>
+
+            <EditForm Model="_gradeForm" OnValidSubmit="SaveGradeAsync">
+                <DataAnnotationsValidator />
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Student</label>
+                        <InputSelect class="form-select" @bind-Value="_gradeForm.StudentId">
+                            <option value="0">-- Select Student --</option>
+                            @foreach (var s in _students)
+                            {
+                                <option value="@s.Id">@s.FullName (@s.StudentNumber)</option>
+                            }
+                        </InputSelect>
+                        <ValidationMessage For="() => _gradeForm.StudentId" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Course</label>
+                        <InputSelect class="form-select" @bind-Value="_gradeForm.CourseId">
+                            <option value="0">-- Select Course --</option>
+                            @foreach (var c in _courses)
+                            {
+                                <option value="@c.Id">@c.CourseCode — @c.Title (@c.Credits Cr.)</option>
+                            }
+                        </InputSelect>
+                        <ValidationMessage For="() => _gradeForm.CourseId" />
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label">Assessment Title</label>
+                        <InputText class="form-control" @bind-Value="_gradeForm.AssessmentTitle" placeholder="Midterm Examination" />
+                        <ValidationMessage For="() => _gradeForm.AssessmentTitle" />
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Assessment Type</label>
+                        <InputSelect class="form-select" @bind-Value="_gradeForm.AssessmentType">
+                            <option value="Midterm">Midterm</option>
+                            <option value="Final">Final</option>
+                            <option value="Project">Project</option>
+                            <option value="Lab">Lab</option>
+                            <option value="Quiz">Quiz</option>
+                            <option value="Homework">Homework</option>
+                            <option value="Exam">Exam</option>
+                        </InputSelect>
+                        <ValidationMessage For="() => _gradeForm.AssessmentType" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Score (0–100%)</label>
+                        <InputNumber class="form-control" @bind-Value="_gradeForm.Score" step="0.5" />
+                        <ValidationMessage For="() => _gradeForm.Score" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Weight (0.05–5.0)</label>
+                        <InputNumber class="form-control" @bind-Value="_gradeForm.Weight" step="0.05" />
+                        <ValidationMessage For="() => _gradeForm.Weight" />
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Instructor Feedback</label>
+                        <InputText class="form-control" @bind-Value="_gradeForm.Feedback" placeholder="Optional assessment feedback or grading notes..." />
+                        <ValidationMessage For="() => _gradeForm.Feedback" />
+                    </div>
+                </div>
+                <div class="d-flex justify-content-end gap-2 mt-4">
+                    <button type="button" class="btn btn-outline-secondary" @onclick="CancelGradeForm">Cancel</button>
+                    <button type="submit" class="btn btn-primary" disabled="@_isBusy">
+                        @(_editingGradeId.HasValue ? "Save Grade Changes" : "Record Grade")
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    @if (_gpaSummary is not null)
+    {
+        <div class="row g-3 mb-4">
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Cumulative GPA"
+                          Value="@($"{_gpaSummary.CumulativeGpa:F2} / {_gpaSummary.MaxGpaPoints:F1}")"
+                          Subtitle="@_gpaSummary.ScaleName"
+                          Icon="🏆"
+                          Variant="primary" />
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Overall Average"
+                          Value="@($"{_gpaSummary.OverallAveragePercentage:F1}%")"
+                          Subtitle="Credit-weighted course average"
+                          Icon="📊"
+                          Variant="success" />
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Graded Courses"
+                          Value="@_gpaSummary.GradedCoursesCount.ToString()"
+                          Subtitle="Courses with recorded assessments"
+                          Icon="📚"
+                          Variant="info" />
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <StatCard Title="Credits Earned"
+                          Value="@_gpaSummary.TotalCreditsEarned.ToString()"
+                          Subtitle="Passed academic credits"
+                          Icon="🎓"
+                          Variant="warning" />
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <div class="col-lg-8">
+                <div class="crm-card p-4 mb-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div>
+                            <h5 class="fw-bold mb-0">Course-by-Course Grade Breakdown</h5>
+                            <div class="text-muted small">
+                                Transcript for <strong>@_gpaSummary.StudentName</strong> (@_gpaSummary.StudentNumber)
+                            </div>
+                        </div>
+                    </div>
+
+                    @{
+                        var filteredSummaries = _filterCourseId > 0
+                            ? _gpaSummary.CourseSummaries.Where(c => c.CourseId == _filterCourseId).ToList()
+                            : _gpaSummary.CourseSummaries.ToList();
+                    }
+
+                    @if (filteredSummaries.Count == 0)
+                    {
+                        <EmptyStateCard Icon="📝"
+                                        Title="No graded assessments recorded yet"
+                                        Description="When assessments are graded for enrolled courses, weighted course averages and GPA points will appear here." />
+                    }
+                    else
+                    {
+                        <div class="d-flex flex-column gap-3">
+                            @foreach (var courseSummary in filteredSummaries)
+                            {
+                                <div class="border rounded-3 p-3">
+                                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                                        <div>
+                                            <span class="badge bg-primary-subtle text-primary fw-bold me-2">@courseSummary.CourseCode</span>
+                                            <span class="fw-bold">@courseSummary.CourseTitle</span>
+                                            <span class="text-muted small ms-2">(@courseSummary.Credits Credits)</span>
+                                        </div>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span class="badge bg-dark">Avg: @courseSummary.AveragePercentage.ToString("F1")%</span>
+                                            <span class="badge @GetGradeBadgeClass(courseSummary.LetterGrade) fs-6">
+                                                @courseSummary.LetterGrade (@courseSummary.GradePoints.ToString("F1") GPA)
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <div class="progress mb-3" style="height: 8px;">
+                                        <div class="progress-bar @GetProgressBarClass(courseSummary.AveragePercentage)"
+                                             role="progressbar"
+                                             style="width: @(Math.Clamp(courseSummary.AveragePercentage, 0, 100))%">
+                                        </div>
+                                    </div>
+
+                                    <div class="table-responsive">
+                                        <table class="table table-sm align-middle mb-0">
+                                            <thead class="table-light">
+                                                <tr>
+                                                    <th>Assessment</th>
+                                                    <th>Type</th>
+                                                    <th>Score</th>
+                                                    <th>Weight</th>
+                                                    <th>Grade</th>
+                                                    <th>Feedback</th>
+                                                    <th>Date</th>
+                                                    @if (IsAdmin)
+                                                    {
+                                                        <th class="text-end">Actions</th>
+                                                    }
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var assessment in courseSummary.Assessments)
+                                                {
+                                                    <tr>
+                                                        <td class="fw-semibold">@assessment.AssessmentTitle</td>
+                                                        <td><span class="badge bg-light text-dark border">@assessment.AssessmentType</span></td>
+                                                        <td class="fw-bold">@assessment.Score.ToString("F1")%</td>
+                                                        <td class="text-muted small">x@assessment.Weight.ToString("F2")</td>
+                                                        <td>
+                                                            <span class="badge @GetGradeBadgeClass(assessment.LetterGrade)">
+                                                                @assessment.LetterGrade (@assessment.GradePoints.ToString("F1"))
+                                                            </span>
+                                                        </td>
+                                                        <td class="text-muted small">@(string.IsNullOrWhiteSpace(assessment.Feedback) ? "—" : assessment.Feedback)</td>
+                                                        <td class="text-muted small">@assessment.GradedAt.ToString("yyyy-MM-dd")</td>
+                                                        @if (IsAdmin)
+                                                        {
+                                                            <td class="text-end">
+                                                                <div class="btn-group btn-group-sm">
+                                                                    <button type="button" class="btn btn-outline-secondary" @onclick="() => OpenEditGradeForm(assessment)">Edit</button>
+                                                                    <button type="button" class="btn btn-outline-danger" @onclick="() => DeleteGradeAsync(assessment.Id)">Delete</button>
+                                                                </div>
+                                                            </td>
+                                                        }
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="crm-card p-4">
+                    <h6 class="fw-bold mb-1">Configured Grading Scale</h6>
+                    <p class="text-muted small mb-3">
+                        Scale: <strong>@_gpaSummary.ScaleName</strong> (Max @_gpaSummary.MaxGpaPoints.ToString("F1") points). Configurable via <code>appsettings.json</code>.
+                    </p>
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Letter</th>
+                                    <th>Range (%)</th>
+                                    <th>Points</th>
+                                    <th>Standing</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var band in _gpaSummary.ScaleBands)
+                                {
+                                    <tr>
+                                        <td><span class="badge @GetGradeBadgeClass(band.LetterGrade)">@band.LetterGrade</span></td>
+                                        <td class="small">@band.MinPercentage.ToString("F0")–@band.MaxPercentage.ToString("F0")%</td>
+                                        <td class="fw-semibold">@band.GradePoints.ToString("F1")</td>
+                                        <td class="text-muted small">@band.Description</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private List<StudentDto> _students = [];
+    private List<CourseDto> _courses = [];
+    private StudentGpaSummaryDto? _gpaSummary;
+    private int _selectedStudentId;
+    private int _filterCourseId;
+
+    private bool _showGradeForm;
+    private int? _editingGradeId;
+    private SaveGradeRequestDto _gradeForm = new();
+
+    private bool _isBusy;
+    private string? _alertMessage;
+    private string _alertVariant = "info";
+
+    private bool IsAdmin => AuthStateProvider.GetAccessContext().IsAdmin;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthStateProvider.AuthenticationStateChanged += OnAuthStateChanged;
+        await LoadPageDataAsync();
+    }
+
+    private async Task LoadPageDataAsync()
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        if (!access.IsAuthenticated)
+        {
+            return;
+        }
+
+        var coursesRes = await AcademicService.GetCoursesAsync(null, null, access);
+        if (coursesRes.Succeeded && coursesRes.Data is not null)
+        {
+            _courses = coursesRes.Data.ToList();
+        }
+
+        if (access.IsAdmin)
+        {
+            var studentsRes = await StudentService.GetStudentsAsync(null, access);
+            if (studentsRes.Succeeded && studentsRes.Data is not null)
+            {
+                _students = studentsRes.Data.ToList();
+                if (_selectedStudentId == 0 && _students.Count > 0)
+                {
+                    _selectedStudentId = _students[0].Id;
+                }
+            }
+        }
+        else if (access.StudentId.HasValue)
+        {
+            _selectedStudentId = access.StudentId.Value;
+        }
+
+        await ReloadTranscriptAsync();
+    }
+
+    private async Task OnSelectedStudentChangedAsync(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var studentId))
+        {
+            _selectedStudentId = studentId;
+            await ReloadTranscriptAsync();
+        }
+    }
+
+    private async Task ReloadTranscriptAsync()
+    {
+        if (_selectedStudentId <= 0)
+        {
+            _gpaSummary = null;
+            return;
+        }
+
+        var access = AuthStateProvider.GetAccessContext();
+        var gpaRes = await AcademicService.GetStudentGpaSummaryAsync(_selectedStudentId, access);
+        if (gpaRes.Succeeded)
+        {
+            _gpaSummary = gpaRes.Data;
+        }
+        else
+        {
+            SetAlert(gpaRes.Message ?? "Could not load GPA summary.", "danger");
+        }
+    }
+
+    private void OpenCreateGradeForm()
+    {
+        _editingGradeId = null;
+        _gradeForm = new SaveGradeRequestDto
+        {
+            StudentId = _selectedStudentId > 0 ? _selectedStudentId : (_students.FirstOrDefault()?.Id ?? 0),
+            CourseId = _courses.FirstOrDefault()?.Id ?? 0,
+            AssessmentTitle = string.Empty,
+            AssessmentType = "Midterm",
+            Score = 90.0m,
+            Weight = 0.30m
+        };
+        _showGradeForm = true;
+    }
+
+    private void OpenEditGradeForm(GradeDto grade)
+    {
+        _editingGradeId = grade.Id;
+        _gradeForm = new SaveGradeRequestDto
+        {
+            StudentId = grade.StudentId,
+            CourseId = grade.CourseId,
+            AssessmentTitle = grade.AssessmentTitle,
+            AssessmentType = grade.AssessmentType,
+            Score = grade.Score,
+            Weight = grade.Weight,
+            Feedback = grade.Feedback
+        };
+        _showGradeForm = true;
+    }
+
+    private void CancelGradeForm()
+    {
+        _showGradeForm = false;
+        _editingGradeId = null;
+    }
+
+    private async Task SaveGradeAsync()
+    {
+        _isBusy = true;
+        var access = AuthStateProvider.GetAccessContext();
+
+        var result = _editingGradeId.HasValue
+            ? await AcademicService.UpdateGradeAsync(_editingGradeId.Value, _gradeForm, access)
+            : await AcademicService.AddGradeAsync(_gradeForm, access);
+
+        _isBusy = false;
+        if (result.Succeeded)
+        {
+            _selectedStudentId = _gradeForm.StudentId;
+            _showGradeForm = false;
+            _editingGradeId = null;
+            SetAlert("Grade assessment saved and GPA recalculated.", "success");
+            await ReloadTranscriptAsync();
+        }
+        else
+        {
+            SetAlert(result.Message ?? "Failed to save grade.", "danger");
+        }
+    }
+
+    private async Task DeleteGradeAsync(int gradeId)
+    {
+        var access = AuthStateProvider.GetAccessContext();
+        var result = await AcademicService.DeleteGradeAsync(gradeId, access);
+        if (result.Succeeded)
+        {
+            SetAlert("Grade assessment removed.", "info");
+            await ReloadTranscriptAsync();
+        }
+        else
+        {
+            SetAlert(result.Message ?? "Failed to delete grade.", "danger");
+        }
+    }
+
+    private static string GetGradeBadgeClass(string letterGrade) => letterGrade switch
+    {
+        "A" or "A+" or "A-" => "bg-success",
+        "B" or "B+" or "B-" => "bg-primary",
+        "C" or "C+" or "C-" => "bg-info text-dark",
+        "D" => "bg-warning text-dark",
+        _ => "bg-danger"
+    };
+
+    private static string GetProgressBarClass(decimal percentage) => percentage switch
+    {
+        >= 90m => "bg-success",
+        >= 80m => "bg-primary",
+        >= 70m => "bg-info",
+        >= 60m => "bg-warning",
+        _ => "bg-danger"
+    };
+
+    private void SetAlert(string message, string variant)
+    {
+        _alertMessage = message;
+        _alertVariant = variant;
+    }
+
+    private void ClearAlert() => _alertMessage = null;
+
+    private void OnAuthStateChanged(Task<AuthenticationState> task)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await LoadPageDataAsync();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        AuthStateProvider.AuthenticationStateChanged -= OnAuthStateChanged;
+    }
+}
